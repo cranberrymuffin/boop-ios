@@ -105,6 +105,9 @@ class BluetoothManager: NSObject, ObservableObject {
             print("⚠️ Device not found in discovered devices")
             return
         }
+        /// connection request
+        /// if yes, continue
+        /// if no, delete
 
         let peripheral = deviceInfo.peripheral
         peripheral.delegate = self
