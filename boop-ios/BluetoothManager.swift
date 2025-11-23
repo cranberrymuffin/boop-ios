@@ -1,10 +1,13 @@
 import Foundation
 import CoreBluetooth
 import Combine
+import UIKit
 
 @MainActor
 class BluetoothManager: NSObject, ObservableObject {
     @Published var nearbyDevices: [UUID] = []
+    @Published var connectionRequest: ConnectionRequest? = nil
+    @Published var connectionResponse: ConnectionResponse? = nil
 
     private var peripheralManager: CBPeripheralManager!
     private var centralManager: CBCentralManager!
@@ -21,11 +24,17 @@ class BluetoothManager: NSObject, ObservableObject {
     private var dataCharacteristic: CBMutableCharacteristic?
     var connectedPeripherals: [UUID: CBPeripheral] = [:]
 
+    // Message handler
+    private var messageHandler: BluetoothMessageHandler?
+
     // MARK: - Init
     override init() {
         super.init()
         peripheralManager = CBPeripheralManager(delegate: self, queue: nil)
         centralManager = CBCentralManager(delegate: self, queue: nil)
+
+        // Initialize message handler with self as delegate
+        messageHandler = BluetoothMessageHandler(delegate: self)
     }
 
     // MARK: - Public Methods
@@ -100,7 +109,7 @@ class BluetoothManager: NSObject, ObservableObject {
     }
 
     // MARK: - Connection and Data Transfer
-    func connect(to deviceID: UUID) {
+    func connect(to deviceID: UUID) async {
         guard let deviceInfo = discoveredDevices[deviceID] else {
             print("⚠️ Device not found in discovered devices")
             return
@@ -109,21 +118,24 @@ class BluetoothManager: NSObject, ObservableObject {
         /// if yes, continue
         /// if no, delete
 
-        let peripheral = deviceInfo.peripheral
-        peripheral.delegate = self
+        // create temp connectin
+        let peripheral = deviceInfo.peripheral // need to understand this
+        peripheral.delegate = self // need to understand this
         centralManager.connect(peripheral, options: nil)
-        print("🔗 Connecting to \(deviceID)")
+        print("🔗 Temporarily Connecting to \(deviceID)")
+        
     }
 
-    func sendData(_ data: Data, to peripheral: CBPeripheral) {
+    func sendMessage(_ message: BluetoothMessage, to peripheral: CBPeripheral) {
         guard let service = peripheral.services?.first(where: { $0.uuid == topicServiceUUID }),
               let characteristic = service.characteristics?.first(where: { $0.uuid == dataCharacteristicUUID }) else {
             print("⚠️ Service or characteristic not found")
             return
         }
 
-        peripheral.writeValue(data, for: characteristic, type: .withResponse)
-        print("📤 Sent data to \(peripheral.identifier)")
+        let encodedData = message.encode()
+        peripheral.writeValue(encodedData, for: characteristic, type: .withResponse)
+        print("📤 Sent \(message.messageType) to \(peripheral.identifier)")
     }
 
     func disconnect(from deviceID: UUID) {
@@ -132,6 +144,7 @@ class BluetoothManager: NSObject, ObservableObject {
         print("🔌 Disconnecting from \(deviceID)")
     }
 }
+// todo: conformance issues
 
 // MARK: - Delegates
 extension BluetoothManager: CBPeripheralManagerDelegate, CBCentralManagerDelegate {
@@ -161,12 +174,21 @@ extension BluetoothManager: CBPeripheralManagerDelegate, CBCentralManagerDelegat
                           didReceiveWrite requests: [CBATTRequest]) {
         for request in requests {
             if request.characteristic.uuid == dataCharacteristicUUID {
-                if let value = request.value {
-                    let receivedString = String(data: value, encoding: .utf8) ?? "Unknown"
-                    print("📥 Received data: \(receivedString)")
-                    // Handle the received data here
+                if let value = request.value,
+                   let message = BluetoothMessage.decode(value) {
+
+                    // Delegate to message handler
+                    do {
+                        try messageHandler.handle(message)
+                        peripheralManager.respond(to: request, withResult: .success)
+                    } catch {
+                        print("⚠️ Message handler error: \(error.localizedDescription)")
+                        peripheralManager.respond(to: request, withResult: .unlikelyError)
+                    }
+                } else {
+                    print("⚠️ Failed to decode message")
+                    peripheralManager.respond(to: request, withResult: .unlikelyError)
                 }
-                peripheralManager.respond(to: request, withResult: .success)
             }
         }
     }
@@ -216,5 +238,34 @@ extension BluetoothManager: CBPeripheralDelegate {
         } else {
             print("✅ Successfully wrote value to characteristic")
         }
+    }
+}
+
+// MARK: - BluetoothMessageHandlerDelegate
+extension BluetoothManager: BluetoothMessageHandlerDelegate {
+    func handleConnectionRequest(from senderUUID: UUID) {
+        // Auto-accept all connection requests
+        // You can add user confirmation logic here later
+        
+        print("Received Connection request by \(senderUUID), waiting for user response")
+        connectionRequest = ConnectionRequest(requesterUUID: senderUUID)
+    }
+
+    func handleConnectionAccept(from senderUUID: UUID) {
+        connectionResponse = ConnectionResponse(requesterUUID: senderUUID, accepted: true)
+        print("✅ Connection accepted by \(senderUUID)")
+    }
+
+    func handleConnectionReject(from senderUUID: UUID) {
+        // Connection was rejected, disconnect
+        connectionResponse = ConnectionResponse(requesterUUID: senderUUID, accepted: false)
+        print("❌ Connection rejected by \(senderUUID), disconnecting")
+        disconnect(from: senderUUID)
+    }
+
+    func handleDisconnect(from senderUUID: UUID) {
+        // Handle disconnect request
+        print("🔌 Disconnect request from \(senderUUID)")
+        disconnect(from: senderUUID)
     }
 }
