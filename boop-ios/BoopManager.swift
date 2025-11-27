@@ -15,12 +15,19 @@ class BoopManager: ObservableObject {
     // MARK: - Private Properties
     private let bluetoothManager: BluetoothManager
     private var cancellables = Set<AnyCancellable>()
+    private var updateTimer: Timer?
+    private let updateInterval: TimeInterval = 2.0  // Update every 2 seconds
 
     // MARK: - Init
     init(bluetoothManager: BluetoothManager) {
         self.bluetoothManager = bluetoothManager
         self.bluetoothManager.start()
         setupObservers()
+        startPeriodicUpdates()
+    }
+
+    deinit {
+        updateTimer?.invalidate()
     }
 
     // MARK: - Setup
@@ -34,24 +41,111 @@ class BoopManager: ObservableObject {
             .store(in: &cancellables)
     }
 
+    private func startPeriodicUpdates() {
+        print("🤝 Boop: Starting periodic queue updates every \(updateInterval)s")
+        updateTimer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor in
+                await self.updateBoopQueueAsync()
+            }
+        }
+    }
+
     // MARK: - Queue Management
-    /// Updates the boop queue by filtering nearby devices for touching distance
+    /// Updates the boop queue by filtering nearby devices for touching distance (async version)
+    private func updateBoopQueueAsync() async {
+        print("🔄 Boop: [Async] Checking for devices in touching range...")
+
+        let nearbyDevicesCopy = bluetoothManager.nearbyDevices
+
+        // Check each device asynchronously
+        var touchingDevices: [UUID] = []
+        for deviceID in nearbyDevicesCopy {
+            if await bluetoothManager.isApproximatelyTouchingAsync(deviceID: deviceID) {
+                touchingDevices.append(deviceID)
+            }
+        }
+
+        // Only update if changed to avoid unnecessary publishes
+        if touchingDevices != boopQueue {
+            let added = Set(touchingDevices).subtracting(Set(boopQueue))
+            let removed = Set(boopQueue).subtracting(Set(touchingDevices))
+
+            boopQueue = touchingDevices
+
+            if !added.isEmpty {
+                print("✅ Boop: [Async] Added \(added.count) device(s) to queue")
+                for deviceID in added {
+                    print("   + \(deviceID.uuidString.prefix(8))")
+                }
+            }
+
+            if !removed.isEmpty {
+                print("➖ Boop: [Async] Removed \(removed.count) device(s) from queue")
+                for deviceID in removed {
+                    print("   - \(deviceID.uuidString.prefix(8))")
+                }
+            }
+
+            print("📊 Boop: [Async] Queue now has \(boopQueue.count) device(s)")
+        } else {
+            if !boopQueue.isEmpty {
+                print("📊 Boop: [Async] Queue unchanged - \(boopQueue.count) device(s) still touching")
+            }
+        }
+    }
+
+    /// Updates the boop queue by filtering nearby devices for touching distance (sync version)
     private func updateBoopQueue() {
+        print("🔄 Boop: Checking for devices in touching range...")
+
         let touchingDevices = bluetoothManager.nearbyDevices.filter { deviceID in
             bluetoothManager.isApproximatelyTouching(deviceID: deviceID)
         }
 
         // Only update if changed to avoid unnecessary publishes
         if touchingDevices != boopQueue {
+            let added = Set(touchingDevices).subtracting(Set(boopQueue))
+            let removed = Set(boopQueue).subtracting(Set(touchingDevices))
+
             boopQueue = touchingDevices
 
-            if !boopQueue.isEmpty {
-                print("🤝 Boop: Queue updated - \(boopQueue.count) device(s) touching")
-                for deviceID in boopQueue {
+            if !added.isEmpty {
+                print("✅ Boop: Added \(added.count) device(s) to queue")
+                for deviceID in added {
+                    print("   + \(deviceID.uuidString.prefix(8))")
+                }
+            }
+
+            if !removed.isEmpty {
+                print("➖ Boop: Removed \(removed.count) device(s) from queue")
+                for deviceID in removed {
                     print("   - \(deviceID.uuidString.prefix(8))")
                 }
             }
+
+            print("📊 Boop: Queue now has \(boopQueue.count) device(s)")
+        } else {
+            if !boopQueue.isEmpty {
+                print("📊 Boop: Queue unchanged - \(boopQueue.count) device(s) still touching")
+            }
         }
+    }
+
+    /// Stop periodic queue updates
+    func stopPeriodicUpdates() {
+        print("🛑 Boop: Stopping periodic queue updates")
+        updateTimer?.invalidate()
+        updateTimer = nil
+    }
+
+    /// Restart periodic queue updates (if stopped)
+    func restartPeriodicUpdates() {
+        guard updateTimer == nil else {
+            print("⚠️ Boop: Periodic updates already running")
+            return
+        }
+        startPeriodicUpdates()
     }
     
     func boopAndRemove() throws -> UUID {

@@ -55,6 +55,9 @@ class BluetoothManagerServiceImpl: NSObject, BluetoothManagerService {
     private var uwbTokenCharacteristic: CBMutableCharacteristic?
     private var connectedPeripherals: [UUID: CBPeripheral] = [:]
 
+    // Track connected centrals (peers who have connected to us)
+    private var connectedCentrals: [UUID: CBCentral] = [:]
+
     // UWB token data
     private var uwbDiscoveryTokenData: Data?
 
@@ -147,11 +150,12 @@ class BluetoothManagerServiceImpl: NSObject, BluetoothManagerService {
         )
 
         // Create UWB token characteristic
+        // Note: value must be nil to support both read and write
         uwbTokenCharacteristic = CBMutableCharacteristic(
             type: uwbTokenCharacteristicUUID,
-            properties: [.read],
-            value: uwbDiscoveryTokenData,
-            permissions: [.readable]
+            properties: [.read, .write],
+            value: nil,  // Must be nil for writeable characteristics
+            permissions: [.readable, .writeable]
         )
 
         let service = CBMutableService(type: boopServiceUUID, primary: true)
@@ -224,13 +228,15 @@ extension BluetoothManagerServiceImpl: CBPeripheralManagerDelegate, CBCentralMan
         // Update discovered devices (RSSI and timestamp)
         discoveredDevices[deviceID] = (Date(), peripheral, RSSI)
 
-        // Only notify delegate if this is a NEW device
-        // This prevents constant observer triggers on RSSI updates
         if isNewDevice {
-            print("📱 BLE: New device discovered - \(deviceID.uuidString.prefix(8))")
+            print("📱 BLE Service: New device discovered - \(deviceID.uuidString.prefix(8)), RSSI: \(RSSI) dBm")
+            print("📊 BLE Service: discoveredDevices count: \(discoveredDevices.count), connectedPeripherals: \(connectedPeripherals.count)")
             Task { @MainActor in
                 self.delegate?.didDiscoverDevice(deviceID, peripheral: peripheral, rssi: RSSI)
             }
+        } else {
+            // Log RSSI updates for debugging (can be verbose)
+            // print("📶 BLE Service: RSSI update - \(deviceID.uuidString.prefix(8)), RSSI: \(RSSI) dBm")
         }
     }
 
@@ -262,14 +268,26 @@ extension BluetoothManagerServiceImpl: CBPeripheralManagerDelegate, CBCentralMan
                     peripheralManager.respond(to: request, withResult: .unlikelyError)
                 }
             } else if request.characteristic.uuid == uwbTokenCharacteristicUUID {
-                // Received peer's UWB token
+                // Received peer's UWB token via write (we are the peripheral)
                 if let tokenData = request.value {
+                    let central = request.central
                     do {
-                        if let _ = try NSKeyedUnarchiver.unarchivedObject(
+                        if let token = try NSKeyedUnarchiver.unarchivedObject(
                             ofClass: NIDiscoveryToken.self,
                             from: tokenData
                         ) {
-                            print("📍 Received UWB token via peripheral manager")
+                            let peerID = central.identifier
+                            print("📍 BLE Service: Received UWB token via write from central \(peerID.uuidString.prefix(8)) (size: \(tokenData.count) bytes)")
+
+                            // Track this central
+                            connectedCentrals[peerID] = central
+
+                            // Now we can start ranging on the peripheral side too!
+                            print("✅ BLE Service: Starting bidirectional UWB ranging from peripheral side")
+                            Task { @MainActor in
+                                self.delegate?.didExchangeUWBToken(for: peerID, token: token)
+                            }
+
                             peripheralManager.respond(to: request, withResult: .success)
                         }
                     } catch {
@@ -277,7 +295,12 @@ extension BluetoothManagerServiceImpl: CBPeripheralManagerDelegate, CBCentralMan
                         peripheralManager.respond(to: request, withResult: .unlikelyError)
                     }
                 } else {
-                    peripheralManager.respond(to: request, withResult: .invalidAttributeValueLength)
+                    if request.value == nil {
+                        peripheralManager.respond(to: request, withResult: .invalidAttributeValueLength)
+                    } else {
+                        print("⚠️ BLE Service: Received UWB token write but no central identifier available")
+                        peripheralManager.respond(to: request, withResult: .success)
+                    }
                 }
             }
         }
@@ -286,6 +309,11 @@ extension BluetoothManagerServiceImpl: CBPeripheralManagerDelegate, CBCentralMan
     func peripheralManager(_ peripheral: CBPeripheralManager,
                           didReceiveRead request: CBATTRequest) {
         if request.characteristic.uuid == uwbTokenCharacteristicUUID {
+            // Track this central so we can match writes later
+            let central = request.central
+            print("📍 BLE Service: Central \(central.identifier.uuidString.prefix(8)) reading our UWB token")
+            connectedCentrals[central.identifier] = central
+
             // Provide our UWB token
             if let tokenData = uwbDiscoveryTokenData {
                 request.value = tokenData
@@ -301,9 +329,11 @@ extension BluetoothManagerServiceImpl: CBPeripheralManagerDelegate, CBCentralMan
 
     func centralManager(_ central: CBCentralManager,
                        didConnect peripheral: CBPeripheral) {
-        print("✅ Connected to \(peripheral.identifier)")
+        print("✅ BLE Service: Connected to \(peripheral.identifier.uuidString.prefix(8))")
         connectedPeripherals[peripheral.identifier] = peripheral
+        print("📊 BLE Service: connectedPeripherals count: \(connectedPeripherals.count)")
         peripheral.discoverServices([boopServiceUUID])
+        print("🔍 BLE Service: Discovering services for \(peripheral.identifier.uuidString.prefix(8))")
 
         Task { @MainActor in
             self.delegate?.didConnect(to: peripheral.identifier, peripheral: peripheral)
@@ -313,8 +343,13 @@ extension BluetoothManagerServiceImpl: CBPeripheralManagerDelegate, CBCentralMan
     func centralManager(_ central: CBCentralManager,
                        didDisconnectPeripheral peripheral: CBPeripheral,
                        error: Error?) {
-        print("❌ Disconnected from \(peripheral.identifier)")
+        if let error = error {
+            print("❌ BLE Service: Disconnected from \(peripheral.identifier.uuidString.prefix(8)) with error: \(error.localizedDescription)")
+        } else {
+            print("❌ BLE Service: Disconnected from \(peripheral.identifier.uuidString.prefix(8))")
+        }
         connectedPeripherals.removeValue(forKey: peripheral.identifier)
+        print("📊 BLE Service: connectedPeripherals count: \(connectedPeripherals.count)")
 
         Task { @MainActor in
             self.delegate?.didDisconnect(from: peripheral.identifier)
@@ -324,7 +359,7 @@ extension BluetoothManagerServiceImpl: CBPeripheralManagerDelegate, CBCentralMan
     func centralManager(_ central: CBCentralManager,
                        didFailToConnect peripheral: CBPeripheral,
                        error: Error?) {
-        print("⚠️ Failed to connect to \(peripheral.identifier): \(error?.localizedDescription ?? "Unknown error")")
+        print("⚠️ BLE Service: Failed to connect to \(peripheral.identifier.uuidString.prefix(8)): \(error?.localizedDescription ?? "Unknown error")")
     }
 }
 
@@ -332,8 +367,19 @@ extension BluetoothManagerServiceImpl: CBPeripheralManagerDelegate, CBCentralMan
 extension BluetoothManagerServiceImpl: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral,
                    didDiscoverServices error: Error?) {
-        guard let services = peripheral.services else { return }
+        if let error = error {
+            print("⚠️ BLE Service: Error discovering services for \(peripheral.identifier.uuidString.prefix(8)): \(error.localizedDescription)")
+            return
+        }
+
+        guard let services = peripheral.services else {
+            print("⚠️ BLE Service: No services found for \(peripheral.identifier.uuidString.prefix(8))")
+            return
+        }
+
+        print("🔍 BLE Service: Discovered \(services.count) service(s) for \(peripheral.identifier.uuidString.prefix(8))")
         for service in services {
+            print("🔍 BLE Service: Discovering characteristics for service \(service.uuid)")
             peripheral.discoverCharacteristics([messageCharacteristicUUID, uwbTokenCharacteristicUUID], for: service)
         }
     }
@@ -341,34 +387,53 @@ extension BluetoothManagerServiceImpl: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral,
                    didDiscoverCharacteristicsFor service: CBService,
                    error: Error?) {
-        guard let characteristics = service.characteristics else { return }
+        if let error = error {
+            print("⚠️ BLE Service: Error discovering characteristics for \(peripheral.identifier.uuidString.prefix(8)): \(error.localizedDescription)")
+            return
+        }
+
+        guard let characteristics = service.characteristics else {
+            print("⚠️ BLE Service: No characteristics found for \(peripheral.identifier.uuidString.prefix(8))")
+            return
+        }
+
+        print("🔍 BLE Service: Discovered \(characteristics.count) characteristic(s) for \(peripheral.identifier.uuidString.prefix(8))")
 
         for characteristic in characteristics {
             if characteristic.uuid == uwbTokenCharacteristicUUID {
+                print("📍 BLE Service: Found UWB token characteristic for \(peripheral.identifier.uuidString.prefix(8))")
+
                 // Read peer's UWB token
+                print("📍 BLE Service: Reading peer's UWB token from \(peripheral.identifier.uuidString.prefix(8))")
                 peripheral.readValue(for: characteristic)
 
                 // Write our UWB token to peer
                 if let ourToken = uwbDiscoveryTokenData {
+                    print("📍 BLE Service: Writing our UWB token to \(peripheral.identifier.uuidString.prefix(8)) (token size: \(ourToken.count) bytes)")
                     peripheral.writeValue(ourToken, for: characteristic, type: .withResponse)
-                    print("📍 Exchanging UWB tokens with \(peripheral.identifier.uuidString.prefix(8))")
+                } else {
+                    print("⚠️ BLE Service: No UWB token available to send to \(peripheral.identifier.uuidString.prefix(8))")
                 }
+            } else if characteristic.uuid == messageCharacteristicUUID {
+                print("💬 BLE Service: Found message characteristic for \(peripheral.identifier.uuidString.prefix(8))")
             }
         }
 
-        print("🔍 Discovered characteristics for \(peripheral.identifier.uuidString.prefix(8))")
+        print("✅ BLE Service: Finished discovering characteristics for \(peripheral.identifier.uuidString.prefix(8))")
     }
 
     func peripheral(_ peripheral: CBPeripheral,
                    didWriteValueFor characteristic: CBCharacteristic,
                    error: Error?) {
         if let error = error {
-            print("⚠️ Error writing value: \(error.localizedDescription)")
+            print("⚠️ BLE Service: Error writing value to \(peripheral.identifier.uuidString.prefix(8)): \(error.localizedDescription)")
         } else {
             if characteristic.uuid == uwbTokenCharacteristicUUID {
-                print("✅ Successfully sent UWB token to \(peripheral.identifier.uuidString.prefix(8))")
+                print("✅ BLE Service: Successfully sent UWB token to \(peripheral.identifier.uuidString.prefix(8))")
+            } else if characteristic.uuid == messageCharacteristicUUID {
+                print("✅ BLE Service: Successfully sent message to \(peripheral.identifier.uuidString.prefix(8))")
             } else {
-                print("✅ Successfully wrote value to characteristic")
+                print("✅ BLE Service: Successfully wrote value to characteristic \(characteristic.uuid)")
             }
         }
     }
@@ -377,25 +442,26 @@ extension BluetoothManagerServiceImpl: CBPeripheralDelegate {
                    didUpdateValueFor characteristic: CBCharacteristic,
                    error: Error?) {
         if let error = error {
-            print("⚠️ Error reading characteristic: \(error.localizedDescription)")
+            print("⚠️ BLE Service: Error reading characteristic from \(peripheral.identifier.uuidString.prefix(8)): \(error.localizedDescription)")
             return
         }
 
         // Handle UWB token read
         if characteristic.uuid == uwbTokenCharacteristicUUID,
            let tokenData = characteristic.value {
+            print("📍 BLE Service: Received UWB token data from \(peripheral.identifier.uuidString.prefix(8)) (size: \(tokenData.count) bytes)")
             do {
                 if let token = try NSKeyedUnarchiver.unarchivedObject(
                     ofClass: NIDiscoveryToken.self,
                     from: tokenData
                 ) {
-                    print("📍 Received UWB token from \(peripheral.identifier.uuidString.prefix(8))")
+                    print("✅ BLE Service: Successfully decoded UWB token from \(peripheral.identifier.uuidString.prefix(8))")
                     Task { @MainActor in
                         self.delegate?.didExchangeUWBToken(for: peripheral.identifier, token: token)
                     }
                 }
             } catch {
-                print("⚠️ Failed to decode UWB token: \(error.localizedDescription)")
+                print("⚠️ BLE Service: Failed to decode UWB token from \(peripheral.identifier.uuidString.prefix(8)): \(error.localizedDescription)")
             }
         }
     }
