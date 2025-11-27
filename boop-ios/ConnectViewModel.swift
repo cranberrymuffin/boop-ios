@@ -2,7 +2,6 @@
 //  BluetoothController.swift
 //  boop-ios
 //
-//  Created by Claude on 11/22/25.
 //
 
 import Foundation
@@ -15,40 +14,27 @@ class ConnectViewModel: ObservableObject {
     // MARK: - Published Properties
     @Published var nearbyDevices: [UUID] = []
     @Published var connectedDeviceID: UUID? = nil
-    @Published var connectionRequest: ConnectionRequest? = nil
-    @Published var connectionResponse: ConnectionResponse? = nil
-    @Published var connectionState: ConnectionState = .disconnected
+//    @Published var waitingForResponse: Bool = false
+    @Published var connectionRequests: [UUID: ConnectionRequest] = [:]
+    @Published var connectionResponses: [UUID: ConnectionResponse] = [:]
     @Published var lastReceivedMessage: String = ""
     @Published var errorMessage: String?
 
     // MARK: - Private Properties
-    private let bluetoothManager = BluetoothManager()
+    private lazy var bluetoothManager: BluetoothManager = {
+        return getBluetoothManager()
+    }()
     private var cancellables = Set<AnyCancellable>()
 
-    // MARK: - Enums
-    enum ConnectionState: Equatable {
-        case disconnected
-        case connecting
-        case connected
-        case failed(String)
-
-        static func == (lhs: ConnectionState, rhs: ConnectionState) -> Bool {
-            switch (lhs, rhs) {
-            case (.disconnected, .disconnected),
-                 (.connecting, .connecting),
-                 (.connected, .connected):
-                return true
-            case (.failed(let lhsError), .failed(let rhsError)):
-                return lhsError == rhsError
-            default:
-                return false
-            }
-        }
-    }
 
     // MARK: - Init
     init() {
         setupObservers()
+    }
+    
+    private func getBluetoothManager() -> BluetoothManager {
+        let uwbManager = UWBManager()
+        return BluetoothManager(uwbManager: uwbManager)
     }
 
     // MARK: - Setup
@@ -57,12 +43,6 @@ class ConnectViewModel: ObservableObject {
         bluetoothManager.$nearbyDevices
             .receive(on: DispatchQueue.main)
             .assign(to: &$nearbyDevices)
-        bluetoothManager.$connectionRequest
-            .receive(on: DispatchQueue.main)
-            .assign(to: &$connectionRequest)
-        bluetoothManager.$connectionResponse
-            .receive(on: DispatchQueue.main)
-            .assign(to: &$connectionResponse)
     }
 
     // MARK: - Public Methods
@@ -75,31 +55,52 @@ class ConnectViewModel: ObservableObject {
         nearbyDevices = []
     }
 
-    func connect(to deviceID: UUID) async {
-        connectionState = .connecting
-        connectedDeviceID = deviceID
-        await bluetoothManager.connect(to: deviceID)
-
-        // Simulate connection success after a delay
-        // In a real implementation, this would be triggered by a delegate callback
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            self.connectionState = .connected
-        }
-    }
-
     func disconnect() {
         guard let deviceID = connectedDeviceID else { return }
         bluetoothManager.disconnect(from: deviceID)
-        connectionState = .disconnected
         connectedDeviceID = nil
     }
+    
+    func onAcceptFriendRequest(to deviceID: UUID?) {
+        if let dID = deviceID {
+            guard let peripheral = bluetoothManager.connectedPeripherals[dID],
+                  let senderUUID = UIDevice.current.identifierForVendor else { return }
+            
+            let message = BluetoothMessage(
+                senderUUID: senderUUID,
+                messageType: .connectionAccept,
+                payload: Data()
+            )
+            
+            self.bluetoothManager.sendMessage(message, to: peripheral)
+        }
+    }
+    
+    func onRejectFriendRequest(to deviceID: UUID?) {
+        if let dID = deviceID {
+            guard let peripheral = bluetoothManager.connectedPeripherals[dID],
+                  let senderUUID = UIDevice.current.identifierForVendor else { return }
+            
+            let message = BluetoothMessage(
+                senderUUID: senderUUID,
+                messageType: .connectionReject,
+                payload: Data()
+            )
+            
+            self.bluetoothManager.sendMessage(message, to: peripheral)
+        }
+    }
 
-    func onConnect(to deviceID: UUID) {
+    func onAddFriend(to deviceID: UUID) {
         guard let peripheral = bluetoothManager.connectedPeripherals[deviceID],
               let senderUUID = UIDevice.current.identifierForVendor else {
             errorMessage = "Cannot send connection request"
             return
         }
+//        waitingForResponse = true
+        
+        // create temporary connection
+        bluetoothManager.connect(to: deviceID)
 
         let message = BluetoothMessage(
             senderUUID: senderUUID,
@@ -107,48 +108,22 @@ class ConnectViewModel: ObservableObject {
             payload: Data()
         )
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.bluetoothManager.sendMessage(message, to: peripheral)
-        }
+        // send friend request
+        self.bluetoothManager.sendMessage(message, to: peripheral)
+        
     }
     
-    func getRequesteeName() -> String {
-        return connectionResponse?.requesterUUID.uuidString ?? "Unknown"
-    }
-    
-    func getRequestResult() -> Bool {
-        return connectionResponse?.accepted ?? false
-    }
-
-    func acceptConnection(to deviceID: UUID) {
-        guard let peripheral = bluetoothManager.connectedPeripherals[deviceID],
-              let senderUUID = UIDevice.current.identifierForVendor else { return }
-
-        let message = BluetoothMessage(
-            senderUUID: senderUUID,
-            messageType: .connectionAccept,
-            payload: Data()
-        )
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.bluetoothManager.sendMessage(message, to: peripheral)
-        }
-    }
-
-    func rejectConnection(to deviceID: UUID) {
-        guard let peripheral = bluetoothManager.connectedPeripherals[deviceID],
-              let senderUUID = UIDevice.current.identifierForVendor else { return }
-
-        let message = BluetoothMessage(
-            senderUUID: senderUUID,
-            messageType: .connectionReject,
-            payload: Data()
-        )
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.bluetoothManager.sendMessage(message, to: peripheral)
-        }
-    }
+//    func getRequesterNameFromRequest() -> String {
+//        return connectionRequest?.requesterUUID.uuidString ?? "Unkown"
+//    }
+//    
+//    func getRequesteeNameFromResponse() -> String {
+//        return connectionResponse?.requesterUUID.uuidString ?? "Unknown"
+//    }
+//    
+//    func getRequestResult() -> Bool {
+//        return connectionResponse?.accepted ?? false
+//    }
 
     func clearError() {
         errorMessage = nil
@@ -159,7 +134,4 @@ class ConnectViewModel: ObservableObject {
         return "Device \(uuid.uuidString.prefix(8))"
     }
 
-    func isConnected(to deviceID: UUID) -> Bool {
-        return connectedDeviceID == deviceID && connectionState == .connected
-    }
 }

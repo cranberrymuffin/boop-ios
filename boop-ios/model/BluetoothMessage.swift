@@ -17,6 +17,7 @@ struct BluetoothMessage {
         case connectionAccept = 0x02
         case connectionReject = 0x03
         case disconnect = 0x05
+        case boop = 0x06
     }
 
     // MARK: - Encoding

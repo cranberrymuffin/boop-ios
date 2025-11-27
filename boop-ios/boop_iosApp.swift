@@ -12,7 +12,7 @@ import SwiftData
 struct boop_iosApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            Entry.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -25,7 +25,7 @@ struct boop_iosApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            BoopView()
         }
         .modelContainer(sharedModelContainer)
     }

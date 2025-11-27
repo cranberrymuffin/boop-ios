@@ -3,18 +3,22 @@ import SwiftUI
 struct ConnectView: View {
     @StateObject private var viewModel = ConnectViewModel()
     @State private var showingSendSheet = false
-    @State private var showingWaitingForResponse = false
     
-    var showingReceivedRequestModal: Bool {
-        viewModel.connectionRequest != nil
-    }
-    var showingResponseToRequestModal: Bool {
-        viewModel.connectionResponse != nil
-    }
-    
-    var showingModal: Bool {
-        showingReceivedRequestModal || showingResponseToRequestModal
-    }
+//    var showingWaitingForResponse: Bool {
+//        viewModel.waitingForResponse
+//    }
+//    
+//    var showingReceivedRequestModal: Bool {
+//        viewModel.connectionRequest != nil
+//    }
+//    var showingReceivedResponseModal: Bool {
+//        viewModel.connectionResponse != nil
+//    }
+//    
+    var showingModal: Bool = false
+//    {
+//        showingReceivedRequestModal || showingReceivedResponseModal || showingWaitingForResponse
+//    }
 
     var body: some View {
         ZStack {
@@ -31,15 +35,12 @@ struct ConnectView: View {
                     List(viewModel.nearbyDevices, id: \.self) { id in
                         DeviceRow(
                             deviceID: id,
-                            deviceName: viewModel.deviceName(for: id),
-                            isConnected: viewModel.isConnected(to: id)
+                            deviceName: viewModel.deviceName(for: id)
                         ) {
-                            showingWaitingForResponse = true
-                            viewModel.onConnect(to: id)
+                            viewModel.onAddFriend(to: id)
                         }
                     }
-                }
-                
+                 }
                 Spacer()
             }
             .padding()
@@ -52,15 +53,33 @@ struct ConnectView: View {
             
             if showingModal {
                 Color.black.opacity(0.4).ignoresSafeArea() // dim background
-                if showingReceivedRequestModal {
-                    
-                }
-                if showingReceivedResponseModal {
-                    FriendRequestResultModalView(requestee: viewModel.getRequesteeName(), result: viewModel.getRequestResult())
-                }
+//                if showingReceivedRequestModal {
+//                    FriendRequestModalView(
+//                        requester: viewModel.getRequesterNameFromRequest(),
+//                        onAccept: { viewModel.onAcceptFriendRequest(to: viewModel.connectedDeviceID) },
+//                        onReject: { viewModel.onRejectFriendRequest(to: viewModel.connectedDeviceID) }
+//                    )
+//                }
+//                if showingReceivedResponseModal {
+//                    FriendRequestResultModalView(requestee: viewModel.getRequesteeNameFromResponse(), result: viewModel.getRequestResult())
+//                }
+//                if showingWaitingForResponse {
+//                    WaitingForResponseView()
+//                }
             }
         }
-        .animation(.default, value: showingModal)
+//        .animation(.default, value: showingModal)
+    }
+    
+    struct WaitingForResponseView: View {
+        var body: some View {
+            VStack(spacing: 20) {
+                Text("Waiting for response")
+                    .font(.title)
+             }
+            .padding()
+            .navigationTitle("WaitingForResponseModal")
+        }
     }
     
     struct FriendRequestResultModalView: View {
@@ -85,63 +104,51 @@ struct ConnectView: View {
                 .buttonStyle(.borderedProminent)
             }
             .padding()
+            .navigationTitle("FriendRequestResultModal")
         }
     }
     
-//    struct SendDataView: View {
-//        @ObservedObject var bluetoothManager: BluetoothManager
-//        let deviceID: UUID
-//        @Binding var messageToSend: String
-//        @Environment(\.dismiss) var dismiss
-//
-//        var body: some View {
-//            NavigationView {
-//                VStack(spacing: 20) {
-//                    Text("Connected to Device")
-//                        .font(.headline)
-//
-//                    Text(deviceID.uuidString)
-//                        .font(.caption)
-//                        .foregroundColor(.gray)
-//
-//                    TextField("Enter message", text: $messageToSend)
-//                        .textFieldStyle(.roundedBorder)
-//                        .padding()
-//
-//                    Button("Send Message") {
-//                        if let data = messageToSend.data(using: .utf8),
-//                           let peripheral = bluetoothManager.connectedPeripherals[deviceID] {
-//                            // Wait a moment for characteristic discovery
-//                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-//                                bluetoothManager.sendData(data, to: peripheral)
-//                            }
-//                        }
-//                    }
-//                    .buttonStyle(.borderedProminent)
-//
-//                    Spacer()
-//                }
-//                .padding()
-//                .navigationTitle("Send Data")
-//                .navigationBarTitleDisplayMode(.inline)
-//                .toolbar {
-//                    ToolbarItem(placement: .navigationBarTrailing) {
-//                        Button("Disconnect") {
-//                            bluetoothManager.disconnect(from: deviceID)
-//                            dismiss()
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//    }
+    struct FriendRequestModalView: View {
+        let requester: String
+        let onAccept: () -> Void
+        let onReject: () -> Void
+        @Environment(\.dismiss) var dismiss
+        
+        let requestResultModalText = {
+            (requester: String) -> (String) in
+            return "\(requester) has sent you a friend request"
+        }
 
+        var body: some View {
+            VStack(spacing: 20) {
+                Text(requestResultModalText(requester))
+                    .font(.title)
+                
+                Spacer()
+                
+                HStack {
+                    Button("Accept") {
+                        onAccept()
+                        dismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    
+                    Button("Reject") {
+                        onReject()
+                        dismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding()
+            .navigationTitle("FriendRequestModal")
+        }
+    }
 
     struct DeviceRow: View {
         let deviceID: UUID
         let deviceName: String
-        let isConnected: Bool
-        let onConnect: () -> Void
+        let onAddFriend: () -> Void
         
         var body: some View {
             HStack {
@@ -154,44 +161,11 @@ struct ConnectView: View {
                 }
                 
                 Spacer()
-                
-                if isConnected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                } else {
-                    Button("Connect") {
-                        onConnect()
+                    Button("Add Friend") {
+                        onAddFriend()
                     }
                     .buttonStyle(.bordered)
                 }
             }
         }
-    }
-    
-    
-    private var connectionStatusText: String {
-        switch viewModel.connectionState {
-        case .disconnected:
-            return "Disconnected"
-        case .connecting:
-            return "Connecting..."
-        case .connected:
-            return "Connected"
-        case .failed:
-            return "Connection Failed"
-        }
-    }
-    
-    private var connectionColor: Color {
-        switch viewModel.connectionState {
-        case .disconnected:
-            return .gray
-        case .connecting:
-            return .yellow
-        case .connected:
-            return .green
-        case .failed:
-            return .red
-        }
-    }
 }
