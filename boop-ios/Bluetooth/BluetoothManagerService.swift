@@ -239,69 +239,77 @@ extension BluetoothManagerServiceImpl: CBPeripheralManagerDelegate, CBCentralMan
             // print("📶 BLE Service: RSSI update - \(deviceID.uuidString.prefix(8)), RSSI: \(RSSI) dBm")
         }
     }
+    
+    private func receivedBLERequestFromCentral(request: CBATTRequest) {
+        if let value = request.value,
+           let message = BluetoothMessage.decode(value) {
+            // Handle message via delegate
+            Task { @MainActor in
+                switch message.messageType {
+                case .boop:
+                    self.delegate?
+                        .didReceiveBoop(from: message.senderUUID)
+                case .connectionRequest:
+                    self.delegate?.didReceiveConnectionRequest(from: message.senderUUID)
+                case .connectionAccept:
+                    self.delegate?.didReceiveConnectionAccept(from: message.senderUUID)
+                case .connectionReject:
+                    self.delegate?.didReceiveConnectionReject(from: message.senderUUID)
+                case .disconnect:
+                    self.delegate?.didReceiveDisconnect(from: message.senderUUID)
+                }
+            }
+            peripheralManager.respond(to: request, withResult: .success)
+        } else {
+            print("⚠️ Failed to decode message")
+            peripheralManager.respond(to: request, withResult: .unlikelyError)
+        }
+    }
+    
+    private func receivedUWBRequestFromCentral(request: CBATTRequest) {
+        let central = request.central
+        if let tokenData = request.value {
+            do {
+                if let token = try NSKeyedUnarchiver.unarchivedObject(
+                    ofClass: NIDiscoveryToken.self,
+                    from: tokenData
+                ) {
+                    let peerID = central.identifier
+                    print("📍 BLE Service: Received UWB token via write from central \(peerID.uuidString.prefix(8)) (size: \(tokenData.count) bytes)")
+                    
+                    // Track this central
+                    connectedCentrals[peerID] = central
+                    
+                    // Now we can start ranging on the peripheral side too!
+                    print("✅ BLE Service: Starting bidirectional UWB ranging from peripheral side")
+                    Task { @MainActor in
+                        self.delegate?.didExchangeUWBToken(for: peerID, token: token)
+                    }
+                    
+                    peripheralManager.respond(to: request, withResult: .success)
+                }
+            } catch {
+                print("⚠️ Failed to decode received UWB token: \(error.localizedDescription)")
+                peripheralManager.respond(to: request, withResult: .unlikelyError)
+            }
+        } else {
+            print("⚠️ UWB request has empty value")
+            peripheralManager.respond(to: request, withResult: .attributeNotFound)
+        }
+    }
 
     func peripheralManager(_ peripheral: CBPeripheralManager,
                           didReceiveWrite requests: [CBATTRequest]) {
         for request in requests {
-            if request.characteristic.uuid == messageCharacteristicUUID {
-                if let value = request.value,
-                   let message = BluetoothMessage.decode(value) {
-                    // Handle message via delegate
-                    Task { @MainActor in
-                        switch message.messageType {
-                        case .boop:
-                            self.delegate?
-                                .didReceiveBoop(from: message.senderUUID)
-                        case .connectionRequest:
-                            self.delegate?.didReceiveConnectionRequest(from: message.senderUUID)
-                        case .connectionAccept:
-                            self.delegate?.didReceiveConnectionAccept(from: message.senderUUID)
-                        case .connectionReject:
-                            self.delegate?.didReceiveConnectionReject(from: message.senderUUID)
-                        case .disconnect:
-                            self.delegate?.didReceiveDisconnect(from: message.senderUUID)
-                        }
-                    }
-                    peripheralManager.respond(to: request, withResult: .success)
-                } else {
-                    print("⚠️ Failed to decode message")
-                    peripheralManager.respond(to: request, withResult: .unlikelyError)
-                }
-            } else if request.characteristic.uuid == uwbTokenCharacteristicUUID {
-                // Received peer's UWB token via write (we are the peripheral)
-                if let tokenData = request.value {
-                    let central = request.central
-                    do {
-                        if let token = try NSKeyedUnarchiver.unarchivedObject(
-                            ofClass: NIDiscoveryToken.self,
-                            from: tokenData
-                        ) {
-                            let peerID = central.identifier
-                            print("📍 BLE Service: Received UWB token via write from central \(peerID.uuidString.prefix(8)) (size: \(tokenData.count) bytes)")
-
-                            // Track this central
-                            connectedCentrals[peerID] = central
-
-                            // Now we can start ranging on the peripheral side too!
-                            print("✅ BLE Service: Starting bidirectional UWB ranging from peripheral side")
-                            Task { @MainActor in
-                                self.delegate?.didExchangeUWBToken(for: peerID, token: token)
-                            }
-
-                            peripheralManager.respond(to: request, withResult: .success)
-                        }
-                    } catch {
-                        print("⚠️ Failed to decode received UWB token: \(error.localizedDescription)")
-                        peripheralManager.respond(to: request, withResult: .unlikelyError)
-                    }
-                } else {
-                    if request.value == nil {
-                        peripheralManager.respond(to: request, withResult: .invalidAttributeValueLength)
-                    } else {
-                        print("⚠️ BLE Service: Received UWB token write but no central identifier available")
-                        peripheralManager.respond(to: request, withResult: .success)
-                    }
-                }
+            let incommingRequestCharacteristic = request.characteristic.uuid
+            switch incommingRequestCharacteristic {
+                case messageCharacteristicUUID:
+                    receivedBLERequestFromCentral(request: request)
+                case uwbTokenCharacteristicUUID:
+                    receivedUWBRequestFromCentral(request: request)
+                default:
+                    print("⚠️ BLE Service: Received message from unknown  characteristic \(incommingRequestCharacteristic)")
+                    peripheralManager.respond(to: request, withResult: .unsupportedGroupType)
             }
         }
     }
