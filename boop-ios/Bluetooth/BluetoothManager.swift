@@ -7,7 +7,7 @@ import NearbyInteraction
 @MainActor
 class BluetoothManager: NSObject, ObservableObject {
     // MARK: - Published Properties
-    @Published var nearbyDevices: [UUID] = []
+    @Published var nearbyDevices: [UUID: DevicePositionCategory] = [:]
     @Published var boops: [UUID: Boop] = [:]
     @Published var connectionRequests: [UUID: ConnectionRequest] = [:]
     @Published var connectionResponses: [UUID: ConnectionResponse] = [:]
@@ -41,6 +41,7 @@ class BluetoothManager: NSObject, ObservableObject {
 
     // MARK: - Public Methods
     func start() {
+        uwbManager?.setUpDelegate(uwbManagerDelegate: self)
         Task {
             await service.start()
         }
@@ -50,11 +51,11 @@ class BluetoothManager: NSObject, ObservableObject {
         Task {
             await service.stop()
         }
-        nearbyDevices = []
+        nearbyDevices = [:]
         devicesWithUWBRanging.removeAll()
     }
 
-    func getNearbyDevices() -> [UUID] {
+    func getNearbyDevices() -> [UUID: DevicePositionCategory] {
         return nearbyDevices
     }
 
@@ -82,7 +83,7 @@ class BluetoothManager: NSObject, ObservableObject {
         $nearbyDevices
             .sink { [weak self] devices in
                 guard let self = self else { return }
-                self.syncUWBRanging(with: Set(devices))
+                self.syncUWBRanging(with: Set(devices.keys))
             }
             .store(in: &cancellables)
     }
@@ -90,7 +91,7 @@ class BluetoothManager: NSObject, ObservableObject {
     private func syncUWBRanging(with currentDevices: Set<UUID>) {
         print("🔄 BT Manager: syncUWBRanging called")
         print("📊 BT Manager: Current state - nearbyDevices: \(nearbyDevices.count), devicesWithUWBRanging: \(devicesWithUWBRanging.count), connectedPeripherals: \(connectedPeripherals.count)")
-        print("📋 BT Manager: nearbyDevices: [\(nearbyDevices.map { $0.uuidString.prefix(8) }.joined(separator: ", "))]")
+        print("📋 BT Manager: nearbyDevices: [\(nearbyDevices.keys.map { $0.uuidString.prefix(8) }.joined(separator: ", "))]")
         print("📋 BT Manager: devicesWithUWBRanging: [\(devicesWithUWBRanging.map { $0.uuidString.prefix(8) }.joined(separator: ", "))]")
         print("📋 BT Manager: connectedPeripherals: [\(connectedPeripherals.keys.map { $0.uuidString.prefix(8) }.joined(separator: ", "))]")
 
@@ -117,23 +118,6 @@ class BluetoothManager: NSObject, ObservableObject {
         }
 
         print("📊 BT Manager: After sync - devicesWithUWBRanging: \(devicesWithUWBRanging.count), connectedPeripherals: \(connectedPeripherals.count)")
-    }
-
-    // MARK: - UWB Methods
-
-    /// Checks if the device is pointing at another device using UWB
-    func isPointingAt(deviceID: UUID) -> Bool {
-        return uwbManager?.isPointingAt(deviceID: deviceID) ?? false
-    }
-
-    /// Checks if a device is nearby using UWB distance only
-    func isNearby(deviceID: UUID) -> Bool {
-        return uwbManager?.isNearby(deviceID: deviceID) ?? false
-    }
-
-    /// Checks if devices are approximately touching (≤10cm)
-    func isApproximatelyTouching(deviceID: UUID) -> Bool {
-        return uwbManager?.isApproximatelyTouching(deviceID: deviceID) ?? false
     }
 
     // MARK: - Async UWB Methods
@@ -171,7 +155,7 @@ class BluetoothManager: NSObject, ObservableObject {
 
         if !nearbyDevices.isEmpty {
             print("🔍 Nearby devices list:")
-            for deviceID in nearbyDevices {
+            for deviceID in nearbyDevices.keys {
                 let isConnected = connectedPeripherals[deviceID] != nil
                 let hasUWB = devicesWithUWBRanging.contains(deviceID)
                 print("   - \(deviceID.uuidString.prefix(8)): connected=\(isConnected), uwb=\(hasUWB)")
@@ -193,8 +177,8 @@ extension BluetoothManager: BluetoothServiceDelegate {
     func didDiscoverDevice(_ deviceID: UUID, peripheral: CBPeripheral, rssi: NSNumber) {
         print("🔍 BT Manager: didDiscoverDevice(\(deviceID.uuidString.prefix(8))) RSSI: \(rssi)")
         // Add to nearby devices if not already present
-        if !nearbyDevices.contains(deviceID) {
-            nearbyDevices.append(deviceID)
+        if !nearbyDevices.keys.contains(deviceID) {
+            nearbyDevices[deviceID] = DevicePositionCategory.Unknown
             print("✅ BT Manager: Added device to nearbyDevices - total: \(nearbyDevices.count)")
             print("📊 BT Manager: State after discovery - nearbyDevices: \(nearbyDevices.count), connectedPeripherals: \(connectedPeripherals.count), devicesWithUWBRanging: \(devicesWithUWBRanging.count)")
         } else {
@@ -205,7 +189,7 @@ extension BluetoothManager: BluetoothServiceDelegate {
     func didRemoveDevice(_ deviceID: UUID) {
         print("🗑️ BT Manager: didRemoveDevice(\(deviceID.uuidString.prefix(8)))")
         // Remove from nearby devices
-        nearbyDevices.removeAll { $0 == deviceID }
+        nearbyDevices.removeValue(forKey: deviceID)
         print("✅ BT Manager: Removed device from nearbyDevices - total: \(nearbyDevices.count)")
         print("📊 BT Manager: State after removal - nearbyDevices: \(nearbyDevices.count), connectedPeripherals: \(connectedPeripherals.count), devicesWithUWBRanging: \(devicesWithUWBRanging.count)")
     }
@@ -257,4 +241,24 @@ extension BluetoothManager: BluetoothServiceDelegate {
         print("✅ BT Manager: Started UWB ranging with \(deviceID.uuidString.prefix(8)) - total ranging: \(devicesWithUWBRanging.count)")
         print("📊 BT Manager: State after UWB token exchange - nearbyDevices: \(nearbyDevices.count), connectedPeripherals: \(connectedPeripherals.count), devicesWithUWBRanging: \(devicesWithUWBRanging.count)")
     }
+}
+// MARK: - BluetoothServiceDelegate
+extension BluetoothManager: UWBManagerDelegate {
+    
+    func onNearbyObjectsUpdate(updatedObject: UUID) async {
+        let currentState = nearbyDevices[updatedObject] ?? DevicePositionCategory.Unknown
+        var newState = DevicePositionCategory.Unknown
+        if await isApproximatelyTouchingAsync(deviceID: updatedObject) {
+            newState = DevicePositionCategory.ApproxTouching
+        } else if await isNearbyAsync(deviceID: updatedObject) {
+            newState = DevicePositionCategory.InRange
+        } else {
+            newState = DevicePositionCategory.OutOfRange
+        }
+        if newState != currentState {
+            nearbyDevices[updatedObject] = newState
+        }
+    }
+    
+    
 }

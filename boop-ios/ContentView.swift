@@ -26,8 +26,8 @@ struct ContentView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink(destination: ConnectView()) {
-                        Label("Connect", systemImage: "antenna.radiowaves.left.and.right")
+                    NavigationLink(destination: BoopView()) {
+                        Label("Boop", systemImage: "antenna.radiowaves.left.and.right")
                     }
                 }
                 ToolbarItem {

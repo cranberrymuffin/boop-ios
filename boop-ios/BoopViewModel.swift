@@ -34,7 +34,7 @@ class BoopViewModel: NSObject, ObservableObject {
         .store(in: &cancellables)
     }
     
-    private func updateAnimationQueue(boopQueue: [UUID]) {
+    private func updateAnimationQueue(boopQueue: Set<UUID>) {
         if !boopQueue.isEmpty {
             do {
                 let user = try boopManager.boopAndRemove()

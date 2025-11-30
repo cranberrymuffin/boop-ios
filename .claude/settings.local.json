@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(xcodebuild:*)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "WebSearch",
+      "Bash(mkdir:*)",
+      "mcp__figma__get_metadata",
+      "mcp__figma__get_variable_defs",
+      "mcp__figma__get_design_context",
+      "mcp__figma__get_screenshot"
     ],
     "deny": [],
     "ask": []

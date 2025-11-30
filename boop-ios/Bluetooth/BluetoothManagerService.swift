@@ -224,19 +224,18 @@ extension BluetoothManagerServiceImpl: CBPeripheralManagerDelegate, CBCentralMan
                         rssi RSSI: NSNumber) {
         let deviceID = peripheral.identifier
         let isNewDevice = discoveredDevices[deviceID] == nil
-
-        // Update discovered devices (RSSI and timestamp)
-        discoveredDevices[deviceID] = (Date(), peripheral, RSSI)
-
+        
         if isNewDevice {
+            // Update discovered devices (RSSI and timestamp)
+            discoveredDevices[deviceID] = (Date(), peripheral, RSSI)
+
             print("📱 BLE Service: New device discovered - \(deviceID.uuidString.prefix(8)), RSSI: \(RSSI) dBm")
             print("📊 BLE Service: discoveredDevices count: \(discoveredDevices.count), connectedPeripherals: \(connectedPeripherals.count)")
             Task { @MainActor in
                 self.delegate?.didDiscoverDevice(deviceID, peripheral: peripheral, rssi: RSSI)
             }
         } else {
-            // Log RSSI updates for debugging (can be verbose)
-            // print("📶 BLE Service: RSSI update - \(deviceID.uuidString.prefix(8)), RSSI: \(RSSI) dBm")
+            discoveredDevices[deviceID] = (lastSeen: Date(), peripheral: discoveredDevices[deviceID]?.peripheral, rssi: RSSI) as? (lastSeen: Date, peripheral: CBPeripheral, rssi: NSNumber)
         }
     }
     
@@ -277,16 +276,20 @@ extension BluetoothManagerServiceImpl: CBPeripheralManagerDelegate, CBCentralMan
                     let peerID = central.identifier
                     print("📍 BLE Service: Received UWB token via write from central \(peerID.uuidString.prefix(8)) (size: \(tokenData.count) bytes)")
                     
-                    // Track this central
-                    connectedCentrals[peerID] = central
-                    
-                    // Now we can start ranging on the peripheral side too!
-                    print("✅ BLE Service: Starting bidirectional UWB ranging from peripheral side")
-                    Task { @MainActor in
-                        self.delegate?.didExchangeUWBToken(for: peerID, token: token)
+                    if connectedCentrals[peerID] == nil {
+                        // Track this central
+                        connectedCentrals[peerID] = central
+                        
+                        // Now we can start ranging on the peripheral side too!
+                        print("✅ BLE Service: Starting bidirectional UWB ranging from peripheral side")
+                        Task { @MainActor in
+                            self.delegate?.didExchangeUWBToken(for: peerID, token: token)
+                        }
+                        
+                        peripheralManager.respond(to: request, withResult: .success)
+                    } else {
+                        peripheralManager.respond(to: request, withResult: .requestNotSupported)
                     }
-                    
-                    peripheralManager.respond(to: request, withResult: .success)
                 }
             } catch {
                 print("⚠️ Failed to decode received UWB token: \(error.localizedDescription)")
@@ -320,15 +323,20 @@ extension BluetoothManagerServiceImpl: CBPeripheralManagerDelegate, CBCentralMan
             // Track this central so we can match writes later
             let central = request.central
             print("📍 BLE Service: Central \(central.identifier.uuidString.prefix(8)) reading our UWB token")
-            connectedCentrals[central.identifier] = central
-
-            // Provide our UWB token
-            if let tokenData = uwbDiscoveryTokenData {
-                request.value = tokenData
-                peripheralManager.respond(to: request, withResult: .success)
-                print("📍 Provided UWB token to peer")
+            if connectedCentrals[central.identifier] == nil {
+                connectedCentrals[central.identifier] = central
+                
+                // Provide our UWB token
+                if let tokenData = uwbDiscoveryTokenData {
+                    request.value = tokenData
+                    peripheralManager.respond(to: request, withResult: .success)
+                    print("📍 Provided UWB token to peer")
+                } else {
+                    peripheralManager.respond(to: request, withResult: .attributeNotFound)
+                }
             } else {
-                peripheralManager.respond(to: request, withResult: .attributeNotFound)
+                print("BLE Service: CBPeripheralManagerDelegate [Peripheral] - Central Already Exists")
+                peripheralManager.respond(to: request, withResult: .requestNotSupported)
             }
         } else {
             peripheralManager.respond(to: request, withResult: .requestNotSupported)
@@ -418,7 +426,9 @@ extension BluetoothManagerServiceImpl: CBPeripheralDelegate {
                 // Write our UWB token to peer
                 if let ourToken = uwbDiscoveryTokenData {
                     print("📍 BLE Service: Writing our UWB token to \(peripheral.identifier.uuidString.prefix(8)) (token size: \(ourToken.count) bytes)")
-                    peripheral.writeValue(ourToken, for: characteristic, type: .withResponse)
+                    if discoveredDevices[peripheral.identifier] == nil {
+                        peripheral.writeValue(ourToken, for: characteristic, type: .withResponse)
+                    }
                 } else {
                     print("⚠️ BLE Service: No UWB token available to send to \(peripheral.identifier.uuidString.prefix(8))")
                 }
