@@ -1,0 +1,20 @@
+{
+  "radius": {
+    "sm": {
+      "type": "dimension",
+      "value": 4
+    },
+    "md": {
+      "type": "dimension",
+      "value": 8
+    },
+    "lg": {
+      "type": "dimension",
+      "value": 12
+    },
+    "xl": {
+      "type": "dimension",
+      "value": 16
+    }
+  }
+}

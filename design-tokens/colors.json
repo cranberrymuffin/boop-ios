@@ -1,0 +1,64 @@
+{
+  "colors": {
+    "background_primary": {
+      "type": "color",
+      "value": "#130914ff",
+      "mode": "dark"
+    },
+    "background_secondary": {
+      "type": "color",
+      "value": "#1d0f22ff",
+      "mode": "dark"
+    },
+    "text_primary": {
+      "type": "color",
+      "value": "#ffffffff",
+      "mode": "dark"
+    },
+    "text_secondary": {
+      "type": "color",
+      "value": "#f4d9f2ff",
+      "mode": "dark"
+    },
+    "text_onaccent": {
+      "type": "color",
+      "value": "#130914ff",
+      "mode": "dark"
+    },
+    "status_success": {
+      "type": "color",
+      "value": "#30d97aff",
+      "mode": "dark"
+    },
+    "status_warning": {
+      "type": "color",
+      "value": "#ffc94aff",
+      "mode": "dark"
+    },
+    "status_error": {
+      "type": "color",
+      "value": "#ff5c70ff",
+      "mode": "dark"
+    },
+    "text_muted": {
+      "type": "color",
+      "value": "#b28bb8ff",
+      "mode": "dark"
+    },
+    "accent_primary": {
+      "type": "color",
+      "value": "#ff7aa2ff",
+      "mode": "dark"
+    },
+    "accent_secondary": {
+      "type": "color",
+      "value": "#3a1e3fff",
+      "mode": "dark"
+    },
+    "accent_tertiary": {
+      "type": "color",
+      "value": "#4ec8f4ff",
+      "mode": "dark"
+    }
+  }
+}

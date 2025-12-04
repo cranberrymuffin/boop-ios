@@ -1,0 +1,26 @@
+{
+  "text": {
+    "pageheader": {
+      "type": "string",
+      "modes": {
+        "connections": {
+          "value": "Connections"
+        },
+        "diary": {
+          "value": "Diary"
+        }
+      }
+    },
+    "thisweekheader": {
+      "type": "string",
+      "modes": {
+        "connections": {
+          "value": "This Week"
+        },
+        "diary": {
+          "value": "This Week"
+        }
+      }
+    }
+  }
+}
