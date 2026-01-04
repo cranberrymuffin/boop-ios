@@ -6,15 +6,13 @@ final class UserProfile {
     var appleUserID: String
     var firstName: String
     var lastName: String
-    var userName: String
     var dateOfBirth: Date
     var createdAt: Date
 
-    init(appleUserID: String, firstName: String, lastName: String, userName: String, dateOfBirth: Date) {
+    init(appleUserID: String, firstName: String, lastName: String, dateOfBirth: Date) {
         self.appleUserID = appleUserID
         self.firstName = firstName
         self.lastName = lastName
-        self.userName = userName
         self.dateOfBirth = dateOfBirth
         self.createdAt = Date()
     }
