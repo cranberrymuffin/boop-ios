@@ -91,6 +91,7 @@ extension SupabaseClientProvider {
     }
     
     /// Upload avatar image to Supabase Storage
+    /// Generates unique UUID per upload and stores metadata in avatars table
     func uploadAvatar(userId: UUID, imageData: Data) async throws -> String {
         guard let client = client else {
             throw SupabaseError.clientNotAvailable
@@ -102,10 +103,12 @@ extension SupabaseClientProvider {
         print("🔍 Upload - Target User ID: \(userId)")
         print("🔍 Upload - IDs Match: \(session.user.id == userId)")
         
-        // Use lowercase UUID to match Supabase's UUID format
-        let filePath = "\(userId.uuidString.lowercased())/avatar.jpeg"
+        // Generate unique UUID for this avatar (not the user ID)
+        let avatarUUID = UUID().uuidString.lowercased()
+        let filePath = "\(userId.uuidString.lowercased())/\(avatarUUID).jpeg"
         print("🔍 Upload - File Path: \(filePath)")
         
+        // Upload to storage
         try await client.storage
             .from("avatars")
             .upload(
@@ -114,10 +117,29 @@ extension SupabaseClientProvider {
                 options: FileOptions(contentType: "image/jpeg", upsert: true)
             )
 
-        // Manually construct the public URL
+        // Construct public URL
         let supabaseUrl = SupabaseConfig.urlString
         let publicURL = "\(supabaseUrl)/storage/v1/object/public/avatars/\(filePath)"
         print("✅ Avatar uploaded to Supabase Storage: \(publicURL)")
+        
+        // Store avatar metadata in avatars table
+        struct AvatarRecord: Codable {
+            let user_id: String
+            let storage_path: String
+        }
+        
+        let avatarRecord = AvatarRecord(
+            user_id: userId.uuidString,
+            storage_path: filePath
+        )
+        
+        try await client
+            .from("avatars")
+            .insert(avatarRecord)
+            .execute()
+        
+        print("✅ Avatar metadata stored in avatars table")
+        
         return publicURL
     }
     
@@ -132,6 +154,37 @@ extension SupabaseClientProvider {
             .download(path: path)
         
         return data
+    }
+    
+    /// Delete avatar from Supabase Storage by file path
+    func deleteAvatar(path: String) async throws {
+        guard let client = client else {
+            throw SupabaseError.clientNotAvailable
+        }
+        
+        // Delete from storage
+        do {
+            try await client.storage
+                .from("avatars")
+                .remove(paths: [path])
+            print("✅ Avatar deleted from storage: \(path)")
+        } catch {
+            print("⚠️ Failed to delete from storage: \(error)")
+            throw error
+        }
+        
+        // Delete the record from avatars table
+        do {
+            try await client
+                .from("avatars")
+                .delete()
+                .eq("storage_path", value: path)
+                .execute()
+            print("✅ Avatar record deleted from avatars table: \(path)")
+        } catch {
+            print("⚠️ Failed to delete avatar record from table: \(error)")
+            // Don't throw - storage deletion succeeded, table cleanup is secondary
+        }
     }
 }
 

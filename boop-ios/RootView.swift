@@ -8,9 +8,9 @@ struct RootView: View {
         Group {
             switch authViewModel.authState {
             case .completed:
-                BoopView()
+                MainTabView()
             case .profileSetup:
-                ProfileSetupView(authViewModel: authViewModel)
+                ProfileSetupView(authViewModel: authViewModel, isSetupMode: true, onProfileUpdated: nil)
             case .authorizing:
                 VStack(spacing: Spacing.md) {
                     ProgressView()

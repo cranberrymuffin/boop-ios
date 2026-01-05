@@ -44,6 +44,38 @@ CREATE POLICY "Users can insert their own profile"
   ON profiles FOR INSERT
   WITH CHECK (auth.uid() = id);
 
+-- Create avatars table to track avatar metadata with user association
+CREATE TABLE avatars (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  storage_path TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Enable Row Level Security
+ALTER TABLE avatars ENABLE ROW LEVEL SECURITY;
+
+-- Create policies for avatars table
+CREATE POLICY "Users can view their own avatars"
+  ON avatars FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own avatars"
+  ON avatars FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own avatars"
+  ON avatars FOR UPDATE
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own avatars"
+  ON avatars FOR DELETE
+  USING (auth.uid() = user_id);
+
+-- Create index on user_id for faster lookups
+CREATE INDEX avatars_user_id_idx ON avatars(user_id);
+
 -- Create avatars storage bucket
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('avatars', 'avatars', true);
@@ -65,8 +97,17 @@ CREATE POLICY "Users can update their own avatar"
     auth.uid()::text = (string_to_array(name, '/'))[1]
   );
 
+CREATE POLICY "Users can delete their own avatar"
+  ON storage.objects FOR DELETE
+  TO authenticated
+  USING (
+    bucket_id = 'avatars' AND
+    auth.uid()::text = (string_to_array(name, '/'))[1]
+  );
+
 CREATE POLICY "Public avatars are accessible to all"
   ON storage.objects FOR SELECT
+  TO authenticated
   USING (bucket_id = 'avatars');
 ```
 
@@ -187,6 +228,9 @@ func uploadAvatar(userId: UUID, imageData: Data) async throws -> String
 
 // Download avatar image from Storage
 func downloadAvatar(path: String) async throws -> Data
+
+// Delete avatar from Storage and metadata table
+func deleteAvatar(path: String) async throws
 ```
 
 All operations are wrapped in `#if canImport(Supabase)` for graceful degradation.
@@ -245,12 +289,12 @@ Split into separate columns for better query and validation capabilities:
 
 ### Avatar Storage
 
-- Bucket: `avatars` (public)
-- File naming: `{user-id}/avatar.jpeg` (lowercase UUID)
-- Access: Public read (anyone can view)
-- Upload: User can only upload their own (enforced by RLS)
-- Access: Public read (anyone can view)
-- Upload: User can only upload their own
+- **Table**: `avatars` tracks metadata with user association
+- **Bucket**: `avatars` (public)
+- **File naming**: `{user-id}/{unique-uuid}.jpeg` (each upload gets unique UUID)
+- **Access**: Public read (anyone can view avatars in Storage)
+- **Upload**: User can only upload their own (enforced by RLS on both table and Storage)
+- **Metadata**: Each upload creates entry in `avatars` table with `user_id` and `storage_path`
 
 ### Security with RLS
 
@@ -331,15 +375,17 @@ All errors from Supabase operations are properly propagated with user-friendly m
 - [x] Profile sync to Supabase database
 - [x] Graceful degradation without Supabase package
 - [x] Proper error messages to user
+- [x] Profile editing with avatar updates
+- [x] Avatar deletion from Storage on replacement
+- [x] Tab navigation (Timeline + You)
 
 ## Next Steps
 
-- [ ] Implement profile editing view
 - [ ] Add real-time subscriptions for profile updates
 - [ ] Sync boop interactions to Supabase
 - [ ] Add social features (friends, contacts)
 - [ ] Add image compression before upload
-- [ ] Support avatar deletion
+- [ ] Support avatar deletion UI (delete button in You tab)
 
 ## Resources
 
