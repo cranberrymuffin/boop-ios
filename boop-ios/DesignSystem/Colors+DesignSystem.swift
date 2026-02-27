@@ -8,29 +8,6 @@
 import SwiftUI
 
 extension Color {
-    // MARK: - Background Colors
-    static let backgroundPrimary = Color(hex: "#130914")
-    static let backgroundSecondary = Color(hex: "#1d0f22")
-
-    // MARK: - Form Colors
-    static let formBackgroundInactive = Color(hex: "#342d39")
-
-    // MARK: - Text Colors
-    static let textPrimary = Color(hex: "#ffffff")
-    static let textSecondary = Color(hex: "#f4d9f2")
-    static let textOnAccent = Color(hex: "#130914")
-    static let textMuted = Color(hex: "#b28bb8")
-
-    // MARK: - Status Colors
-    static let statusSuccess = Color(hex: "#30d97a")
-    static let statusWarning = Color(hex: "#ffc94a")
-    static let statusError = Color(hex: "#ff5c70")
-
-    // MARK: - Accent Colors
-    static let accentPrimary = Color(hex: "#ff7aa2")
-    static let accentSecondary = Color(hex: "#3a1e3f")
-    static let accentTertiary = Color(hex: "#4ec8f4")
-
     // MARK: - Hex Initializer
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
