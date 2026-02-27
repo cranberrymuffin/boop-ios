@@ -16,32 +16,43 @@ Boop is an offline social iOS app that uses Bluetooth Low Energy (BLE) and Ultra
 
 ### Building from Command Line
 
-**Important:** The Xcode project is located in the parent directory (`boop-ios.xcodeproj`), not in the source folder.
+**Important:** The Xcode project is located in the parent directory (`boop-ios.xcodeproj`), not in the source folder. All `xcodebuild` commands must run from the directory containing the `.xcodeproj`.
+
+**Recommended build command (simulator, avoids code signing):**
 
 ```bash
-# Navigate to project root (if in boop-ios/ source directory)
-cd ..
+# From the project root (parent of boop-ios/ source dir):
+# 1. Find an available simulator UUID
+xcrun simctl list devices available | grep iPhone
 
-# Build for debug configuration
-xcodebuild -scheme boop-ios -configuration Debug build
+# 2. Build using the simulator UUID (replace with actual UUID from step 1)
+xcodebuild -scheme boop-ios \
+  -destination 'platform=iOS Simulator,id=<SIMULATOR-UUID>' \
+  -configuration Debug build
+```
 
-# Build for simulator (specify simulator name)
-xcodebuild -scheme boop-ios -destination 'platform=iOS Simulator,name=iPhone 15' build
+**Why use a simulator UUID?** Destination by name (e.g. `name=iPhone 15`) fails if that exact simulator isn't installed. UUIDs from `xcrun simctl list` always work. Code signing is also skipped for simulator builds, avoiding provisioning profile errors.
 
-# Build for device
+```bash
+# Other useful commands (all from project root):
+
+# Build for device (requires code signing)
 xcodebuild -scheme boop-ios -destination 'generic/platform=iOS' build
 
 # Clean build folder
 xcodebuild -scheme boop-ios clean
 
 # Build and run tests
-xcodebuild -scheme boop-ios test -destination 'platform=iOS Simulator,name=iPhone 15'
+xcrun simctl list devices available | grep iPhone  # find a UUID first
+xcodebuild -scheme boop-ios \
+  -destination 'platform=iOS Simulator,id=<SIMULATOR-UUID>' \
+  test
 ```
 
 **Common Build Issues:**
-- **Code signing errors:** Ensure Team ID (P3PR8G7GB9) is configured
-- **"No such project" error:** Make sure you're in the directory containing `boop-ios.xcodeproj`
-- **Provisioning profile errors:** Use `-allowProvisioningUpdates` flag for automatic profile generation
+- **"Unable to find a device matching the provided destination specifier":** The simulator name doesn't match any installed simulator. Use `xcrun simctl list devices available` to find exact names or UUIDs, and prefer UUIDs.
+- **Code signing / provisioning profile errors:** These only affect device builds, not simulator builds. For device builds, ensure Team ID (P3PR8G7GB9) is configured and use `-allowProvisioningUpdates`. Note: `-allowProvisioningUpdates` still requires a valid Apple Developer account configured in Xcode.
+- **"No such project" error:** Make sure you're in the directory containing `boop-ios.xcodeproj`, not in the `boop-ios/` source folder.
 
 ### Running from Xcode
 
