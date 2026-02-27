@@ -479,20 +479,38 @@ boop_iosApp (ModelContainer + BoopManager)
 
 All design tokens live in `DesignSystem/`. Never hardcode visual values — always use the token enums.
 
-#### Colors (`Colors+DesignSystem.swift`)
+#### Colors — Asset Catalog Color Sets
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `backgroundPrimary` | #130914 | Page backgrounds |
-| `backgroundSecondary` | #1d0f22 | Card backgrounds |
-| `formBackgroundInactive` | #342d39 | Form field backgrounds |
-| `textPrimary` | #ffffff | Primary text |
-| `textSecondary` | #f4d9f2 | Card titles, subtitles |
-| `textMuted` | #b28bb8 | Section headers, captions |
-| `textOnAccent` | #130914 | Text on accent buttons |
-| `accentPrimary` | #ff7aa2 | Buttons, links, tint |
-| `accentSecondary` | #3a1e3f | Selected/highlighted state |
-| `accentTertiary` | #4ec8f4 | Secondary accent |
+Colors are defined as **Asset Catalog color sets** in `Assets.xcassets/`, with separate light and dark appearance variants. SwiftUI resolves the correct value automatically based on system appearance — no `@Environment(\.colorScheme)` branching needed.
+
+**How color sets work:** Each `.colorset/Contents.json` has a `colors` array with two entries:
+- **No `appearances` key** → default/fallback (serves as light mode)
+- **`appearances: [{appearance: "luminosity", value: "dark"}]`** → dark mode override
+
+iOS uses most-specific-match: it checks for an explicit dark match, and falls back to the default entry otherwise.
+
+**Auto-generated accessors:** Xcode auto-generates `Color` extensions from asset catalog color sets. Do NOT manually define `static let` properties on `Color` with the same names — this causes "ambiguous use" build errors. The file `Colors+DesignSystem.swift` only contains the `init(hex:)` helper; color accessors come from the asset catalog.
+
+| Token | Dark Mode | Light Mode | Usage |
+|-------|-----------|------------|-------|
+| `backgroundPrimary` | #130914 | #fff7fb | Page backgrounds |
+| `backgroundSecondary` | #1d0f22 | #ffeaf5 | Card backgrounds |
+| `formBackgroundInactive` | #342d39 | #f0e4ed | Form field backgrounds |
+| `textPrimary` | #ffffff | #241023 | Primary text |
+| `textSecondary` | #f4d9f2 | #6b4a6a | Card titles, subtitles |
+| `textMuted` | #b28bb8 | #a184a5 | Section headers, captions |
+| `textOnAccent` | #130914 | #ffffff | Text on accent buttons |
+| `accentPrimary` | #ff7aa2 | #ff4f8b | Buttons, links, tint |
+| `accentSecondary` | #3a1e3f | #ffd4e6 | Selected/highlighted state |
+| `accentTertiary` | #4ec8f4 | #4ec8f4 | Secondary accent (same both modes) |
+| `statusSuccess` | #30d97a | #2bbf6a | Success messages |
+| `statusWarning` | #ffc94a | #ffb020 | Warning messages |
+| `statusError` | #ff5c70 | #e5484d | Error messages |
+
+**Adding a new color:**
+1. Create `Assets.xcassets/tokenName.colorset/Contents.json` with light (default) and dark entries
+2. Use `Color.tokenName` or `.tokenName` in SwiftUI — the accessor is auto-generated
+3. Do NOT add a manual `static let` to `Colors+DesignSystem.swift`
 
 #### Typography (`Typography+DesignSystem.swift`)
 
@@ -565,7 +583,7 @@ When using `onChange(of:)` modifiers, replace unused parameters with `_`:
 }
 ```
 
-## Design System
+## Design System Details
 
 ### Spacing Values
 
@@ -661,6 +679,10 @@ Persistence is handled in `BoopRangingView`:
 **"Cannot expand accessor macro":**
 - Check all `@Model` classes for `let` declarations
 - Change to `var` even if value is logically immutable
+
+**"Ambiguous use of 'colorName'":**
+- A manual `static let` on `Color` conflicts with the auto-generated accessor from the asset catalog color set
+- Remove the manual definition — the asset catalog auto-generates `Color.tokenName` accessors
 
 **"No such file or directory":**
 - Ensure you're running `xcodebuild` from the directory containing `.xcodeproj`
