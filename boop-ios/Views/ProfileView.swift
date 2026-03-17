@@ -10,6 +10,7 @@ struct ProfileView: View {
     @State private var isEditing = false
 
     @State private var gradientColors: [Color] = []
+    @State private var avatarData: Data?
 
     var body: some View {
         NavigationView {
@@ -60,7 +61,8 @@ struct ProfileView: View {
                         ProfileDisplayCard(
                             displayName: name,
                             birthday: birthday,
-                            bio: bio.isEmpty ? nil : bio
+                            bio: bio.isEmpty ? nil : bio,
+                            avatarData: avatarData
                         )
                     }
                 .listRowBackground(Color.clear)
@@ -80,6 +82,7 @@ struct ProfileView: View {
             requireAllFields: false,
             isEditMode: true,
             gradientColors: gradientColors,
+            initialAvatarData: avatarData,
             onSave: { profile in
                 saveProfile(profile: profile)
             }
@@ -99,6 +102,7 @@ struct ProfileView: View {
                 self.birthday = profile.birthday
                 self.bio = profile.bio ?? ""
                 self.gradientColors = profile.gradientColors
+                self.avatarData = profile.avatarData
                 
                 self.isLoading = false
                 self.isEditing = false
@@ -117,6 +121,7 @@ struct ProfileView: View {
                 self.birthday = profileData.birthday
                 self.bio = profileData.bio ?? ""
                 self.gradientColors = profileData.gradientColors
+                self.avatarData = profileData.avatarData
                 self.isLoading = false
                 print("✅ [Profile] Profile state updated")
             }

@@ -39,6 +39,10 @@ actor DataStore {
             cache[UserDefaultsKeys.gradientColors] = gradientColors
         }
 
+        if let avatarData = UserDefaults.standard.data(forKey: UserDefaultsKeys.avatarData) {
+            cache[UserDefaultsKeys.avatarData] = avatarData
+        }
+
         cache[UserDefaultsKeys.profileComplete] = UserDefaults.standard.bool(forKey: UserDefaultsKeys.profileComplete)
 
         isWarmedUp = true
@@ -70,6 +74,14 @@ actor DataStore {
         return UserDefaults.standard.string(forKey: UserDefaultsKeys.bio)
     }
     
+    /// Returns the user's avatar image data if available
+    func getAvatarData() async -> Data? {
+        if let cached = cache[UserDefaultsKeys.avatarData] as? Data {
+            return cached
+        }
+        return UserDefaults.standard.data(forKey: UserDefaultsKeys.avatarData)
+    }
+
     /// Returns the user's gradient colors if available
     func getGradientColors() async -> [String]? {
         if let cached = cache[UserDefaultsKeys.gradientColors] as? [String] {
@@ -101,11 +113,13 @@ actor DataStore {
         let birthday = await getBirthday()
         let bio = await getBio()
         let gradientColors = await getGradientColors() ?? []
+        let avatarData = await getAvatarData()
         let userProfileData = UserProfileData(
             name: name,
             birthday: birthday,
             bio: bio,
-            gradientColorsData: gradientColors
+            gradientColorsData: gradientColors,
+            avatarData: avatarData
         )
         print("Constructed user profile data. Display Name: \(userProfileData.displayName)")
         return userProfileData
@@ -123,6 +137,11 @@ actor DataStore {
             UserDefaults.standard.set(bio, forKey: UserDefaultsKeys.bio)
         }
         UserDefaults.standard.set(profile.gradientColorsData, forKey: UserDefaultsKeys.gradientColors)
+        if let avatarData = profile.avatarData {
+            UserDefaults.standard.set(avatarData, forKey: UserDefaultsKeys.avatarData)
+        } else {
+            UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.avatarData)
+        }
 
         // Update cache
         cache[UserDefaultsKeys.name] = profile.name
@@ -133,6 +152,7 @@ actor DataStore {
             cache[UserDefaultsKeys.bio] = bio
         }
         cache[UserDefaultsKeys.gradientColors] = profile.gradientColorsData
+        cache[UserDefaultsKeys.avatarData] = profile.avatarData as Any
     }
 
     // MARK: - Individual Setters
@@ -155,6 +175,7 @@ actor DataStore {
         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.name)
         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.birthday)
         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.bio)
+        UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.avatarData)
         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.profileComplete)
 
         isWarmedUp = false
@@ -170,6 +191,15 @@ struct UserProfileData {
     let birthday: Date?
     let bio: String?
     let gradientColorsData: [String]
+    let avatarData: Data?
+
+    init(name: String, birthday: Date?, bio: String?, gradientColorsData: [String], avatarData: Data? = nil) {
+        self.name = name
+        self.birthday = birthday
+        self.bio = bio
+        self.gradientColorsData = gradientColorsData
+        self.avatarData = avatarData
+    }
 
     var displayName: String {
         "\(name)"

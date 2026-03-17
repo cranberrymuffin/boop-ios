@@ -9,4 +9,5 @@ struct UserDefaultsKeys {
     static let birthday = "boopBirthday"
     static let bio = "boopBio"
     static let gradientColors = "boopGradientColors"
+    static let avatarData = "boopAvatarData"
 }
