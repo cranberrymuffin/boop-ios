@@ -39,7 +39,7 @@ class BoopManager: NSObject, ObservableObject {
 
     private lazy var displayName: Task<String, Error> = {
         Task {
-            if let profile = await DataStore.shared.getUserProfile() {
+            if let profile = await UserDataStore.shared.getUserProfile() {
                 return profile.displayName
             }
             return ""
@@ -245,6 +245,7 @@ class BoopManager: NSObject, ObservableObject {
     }
 
     private func debugInteractionFetching(_ contactUUID: UUID, _ modelContext: ModelContext) {
+        #if DEBUG
         let generalDescriptor = FetchDescriptor<BoopInteraction>(predicate: #Predicate {
             $0.contact?.uuid == contactUUID
         })
@@ -254,7 +255,9 @@ class BoopManager: NSObject, ObservableObject {
             print(interaction.id, ", ", interaction.timestamp)
         }
         print("------ boop interaction ------")
+        #endif
     }
+    
     
     /// Find an existing interaction for a contact within a session time window.
     private func findInteractionInSession(contactUUID: UUID, sessionStart: Date, sessionEnd: Date) -> BoopInteraction? {
@@ -360,7 +363,7 @@ class BoopManager: NSObject, ObservableObject {
 
                 // We need a display name — try DataStore or use a fallback
                 let displayName: String
-                if let contact = findOrCreateContact(senderUUID: senderUUID, displayName: "Friend", birthday: nil, bio: nil, gradientColors: []) {
+                if let contact = findOrCreateContact(senderUUID: senderUUID, displayName: "Simulated Friend", birthday: nil, bio: nil, gradientColors: []) {
                     displayName = contact.displayName
                     _ = createInteraction(
                         title: displayName,
@@ -392,7 +395,7 @@ class BoopManager: NSObject, ObservableObject {
         }
         do {
             // Get user profile data
-            let profile = await DataStore.shared.getUserProfile()
+            let profile = await UserDataStore.shared.getUserProfile()
 
             let message = BluetoothMessage(
                 senderUUID: bluetoothManager.getLocalDeviceUUID(),

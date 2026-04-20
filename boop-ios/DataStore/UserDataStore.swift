@@ -3,8 +3,8 @@ import SwiftUI
 
 /// Unified data store providing a single interface for accessing user data
 /// Internally uses UserDefaults for persistence with optional in-memory caching
-actor DataStore {
-    static let shared = DataStore()
+actor UserDataStore {
+    static let shared = UserDataStore()
 
     // In-memory cache for frequently accessed values
     private var cache: [String: Any] = [:]
@@ -37,10 +37,6 @@ actor DataStore {
         
         if let gradientColors = UserDefaults.standard.array(forKey: UserDefaultsKeys.gradientColors) as? [String] {
             cache[UserDefaultsKeys.gradientColors] = gradientColors
-        }
-
-        if let avatarData = UserDefaults.standard.data(forKey: UserDefaultsKeys.avatarData) {
-            cache[UserDefaultsKeys.avatarData] = avatarData
         }
 
         cache[UserDefaultsKeys.profileComplete] = UserDefaults.standard.bool(forKey: UserDefaultsKeys.profileComplete)
@@ -76,10 +72,7 @@ actor DataStore {
     
     /// Returns the user's avatar image data if available
     func getAvatarData() async -> Data? {
-        if let cached = cache[UserDefaultsKeys.avatarData] as? Data {
-            return cached
-        }
-        return UserDefaults.standard.data(forKey: UserDefaultsKeys.avatarData)
+        return nil
     }
 
     /// Returns the user's gradient colors if available
@@ -137,11 +130,6 @@ actor DataStore {
             UserDefaults.standard.set(bio, forKey: UserDefaultsKeys.bio)
         }
         UserDefaults.standard.set(profile.gradientColorsData, forKey: UserDefaultsKeys.gradientColors)
-        if let avatarData = profile.avatarData {
-            UserDefaults.standard.set(avatarData, forKey: UserDefaultsKeys.avatarData)
-        } else {
-            UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.avatarData)
-        }
 
         // Update cache
         cache[UserDefaultsKeys.name] = profile.name
@@ -152,7 +140,6 @@ actor DataStore {
             cache[UserDefaultsKeys.bio] = bio
         }
         cache[UserDefaultsKeys.gradientColors] = profile.gradientColorsData
-        cache[UserDefaultsKeys.avatarData] = profile.avatarData as Any
     }
 
     // MARK: - Individual Setters
@@ -175,7 +162,6 @@ actor DataStore {
         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.name)
         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.birthday)
         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.bio)
-        UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.avatarData)
         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.profileComplete)
 
         isWarmedUp = false

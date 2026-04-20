@@ -102,7 +102,6 @@ enum MapSize {
     static let pinBorderWidth: CGFloat = 2
 }
 
-
 // MARK: - Animation Durations
 enum AnimationDuration {
     /// Quick animations (micro-interactions): 0.2s

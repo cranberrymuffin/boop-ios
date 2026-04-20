@@ -30,12 +30,11 @@ struct ProfileSetupView: View {
         initialAvatarData: Data? = nil,
         onSave: @escaping (UserProfile) -> Void
     ) {
-        _name = State(initialValue: initialName)
-        _birthday = State(initialValue: initialBirthday)
-        _bio = State(initialValue: initialBio)
-        let colors = gradientColors ?? ProfileSetupView.generateRandomGradient()
-        _gradientColors = State(initialValue: colors)
-        _avatarData = State(initialValue: initialAvatarData)
+        self.name = initialName
+        self.birthday = initialBirthday
+        self.bio = initialBio
+        self.gradientColors = gradientColors ?? ProfileSetupView.generateRandomGradient()
+        self.avatarData = initialAvatarData
         self.buttonText = buttonText
         self.requireAllFields = requireAllFields
         self.isEditMode = isEditMode
@@ -62,6 +61,7 @@ struct ProfileSetupView: View {
     }
 
     var body: some View {
+        
         NavigationView {
             ZStack {
                 AnimatedMeshGradient(
@@ -70,13 +70,14 @@ struct ProfileSetupView: View {
                     duration: 3.0
                 )
                 .ignoresSafeArea()
-
                 VStack(spacing: 0) {
                     // Avatar picker
                     PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                         ZStack(alignment: .bottomTrailing) {
-                            if let avatarData, let uiImage = UIImage(data: avatarData) {
-                                Image(uiImage: uiImage)
+                            if avatarData != nil
+                            {
+                                let uiImage = UIImage(data: avatarData!)
+                                Image(uiImage: uiImage!)
                                     .resizable()
                                     .scaledToFill()
                                     .frame(width: 88, height: 88)
@@ -100,16 +101,17 @@ struct ProfileSetupView: View {
 
                     Form {
                         Section {
-                            StyledTextField(placeholder: "Name", text: $name)
+                            StyledTextField(placeholder:
+                                                name != "" ? name : "Name", text: $name)
                                 .listRowSeparator(.hidden)
                             DatePickerField(
                                 title: "Set birthday",
-                                placeholder: "Add birthday",
+                                placeholder: birthday != nil ? birthday!.formatted() : "Add Birthday",
                                 info: "Your birth year is kept private",
                                 selectedDate: $birthday
                             )
                                 .listRowSeparator(.hidden)
-                            StyledTextField(placeholder: "Bio", text: $bio)
+                            StyledTextField(placeholder: bio != "" ? bio : "Bio", text: $bio)
                                 .listRowSeparator(.hidden)
                         }
                     }
@@ -184,7 +186,6 @@ struct ProfileSetupView: View {
 
         isLoading = false
     }
-
 
 }
 
