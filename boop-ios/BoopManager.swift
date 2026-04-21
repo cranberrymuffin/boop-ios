@@ -111,7 +111,15 @@ class BoopManager: NSObject, ObservableObject {
     }
 
     private func cleanUpDisconnectedDevices(currentDeviceIDs: Set<UUID>) {
-        lastBoopTime = lastBoopTime.filter { currentDeviceIDs.contains($0.key) }
+        var allDevices = Set(lastBoopTime.keys)
+        
+        var disconnectedPeripherals = allDevices.subtracting(currentDeviceIDs)
+        lastBoopTime = lastBoopTime.filter { currentDeviceIDs.contains($0.key)
+        }
+        
+        for peripheral in disconnectedPeripherals {
+            handleSessionEnd(peripheralUUID: peripheral)
+        }
     }
 
     func start() {
@@ -342,11 +350,12 @@ extension BoopManager: BoopDelegate {
         // Broadcast event for UI
         latestBoopEvent = event
 
-        // Send a boop back so the sender also gets the record.
         if let lastBoop = lastBoopTime[peripheralUUID],
            Date().timeIntervalSince(lastBoop) < boopCooldown {
             print("⏳ BoopManager: Skipping send-back boop to \(peripheralUUID.uuidString.prefix(8)) - cooldown active")
         } else {
+            
+            // Send a boop back so the sender also gets the record.
             print("↩️ BoopManager: Sending boop back to \(peripheralUUID.uuidString.prefix(8))")
             lastBoopTime[peripheralUUID] = Date()
             Task {
