@@ -2,15 +2,14 @@ import SwiftUI
 import SwiftData
 
 struct ProfileView: View {
-    
+
     enum ProfileState {
         case loadingProfile
         case editingProfile
         case noProfile
         case displayProfile
     }
-    
-    @Environment(\.modelContext) private var modelContext
+
     @State private var userProfile: UserProfile? = nil
     @State private var profileState = ProfileState.loadingProfile
 
@@ -115,22 +114,14 @@ struct ProfileView: View {
     }
     
     private func saveProfile(profile: UserProfile) {
-        modelContext.insert(profile)
-        try? modelContext.save()
-        profileState = ProfileState.displayProfile
+        UserProfileRepository.shared.save(profile)
+        profileState = .displayProfile
     }
-    
+
     private func loadProfile() {
-        profileState = ProfileState.loadingProfile
-        let fetchDescriptor = FetchDescriptor<UserProfile>(
-                        sortBy: [SortDescriptor(\UserProfile.createdAt, order: .reverse)]
-                    )
-        let userProfiles = (try? modelContext.fetch(fetchDescriptor)) ?? []
-        if userProfiles.count > 0 {
-            userProfile = userProfiles.first
-        }
-        profileState = userProfile != nil ?
-            ProfileState.displayProfile : ProfileState.noProfile
+        profileState = .loadingProfile
+        userProfile = UserProfileRepository.shared.getCurrent()
+        profileState = userProfile != nil ? .displayProfile : .noProfile
     }
 }
 
