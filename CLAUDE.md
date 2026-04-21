@@ -300,6 +300,11 @@ boop-ios/                              # Source root
 │   │   ├── UserProfile.swift          # @Model — user's own profile
 │   │   ├── BoopInteraction.swift      # @Model — interactions with path data
 │   │   └── NotificationIntent.swift   # @Model — scheduled notifications
+│   ├── ModelRepository/               # Singleton data access layer
+│   │   ├── ModelContextProvider.swift # Shared ModelContext owner
+│   │   ├── ContactRepository.swift    # Contact CRUD
+│   │   ├── BoopInteractionRepository.swift  # Interaction CRUD + session enrichment
+│   │   └── UserProfileRepository.swift      # Profile CRUD
 │   ├── Boop.swift                     # Value types: Boop struct + BoopEvent
 │   ├── BluetoothMessage.swift         # Binary BLE protocol
 │   ├── NearbyDevice.swift
@@ -376,9 +381,35 @@ The app uses **SwiftData as its primary persistence layer** for all user data (p
 Schema: [Contact, UserProfile, BoopInteraction, NotificationIntent]
 ```
 
-The app entry point creates the `ModelContainer` asynchronously after `StorageCoordinator` finishes directory setup. A loading screen shows until the container is ready, then `RootView` receives it via `.modelContainer()`.
+The app entry point creates the `ModelContainer` asynchronously after `StorageCoordinator` finishes directory setup. A loading screen shows until the container is ready, then `RootView` receives it via `.modelContainer()`. After the container is created, the three repository singletons are initialized with it.
 
-**Profile management uses ModelContext directly:** `ProfileView` fetches the user profile via `modelContext.fetch(FetchDescriptor<UserProfile>)` and inserts new/updated profiles via `modelContext.insert()`. Profile data is not stored in UserDefaults.
+#### Model Repositories (`Model/ModelRepository/`)
+
+`@MainActor` singleton classes that encapsulate all imperative SwiftData access. All repositories share a single `ModelContext` owned by `ModelContextProvider.shared` — this avoids cross-context errors when passing model objects between repositories. Repositories auto-save after every mutation. Views and managers never use `FetchDescriptor` or `modelContext` directly — they call repository methods instead.
+
+**`ContactRepository.shared`**
+- `find(byUUID:)` → `Contact?`
+- `findOrCreate(uuid:displayName:birthday:bio:gradientColors:)` → `Contact?` — upserts and auto-saves
+- `delete(_:)` — cascade-deletes interactions, auto-saves
+
+**`BoopInteractionRepository.shared`**
+- `create(title:location:timestamp:endTimestamp:contact:pathCoordinates:)` → `BoopInteraction?` — inserts, associates with contact, auto-saves
+- `isDuplicate(contactUUID:displayName:timestamp:window:)` → `Bool`
+- `findLatest(forContactUUID:)` → `BoopInteraction?`
+- `enrichWithSessionData(_:endTimestamp:pathCoordinates:location:)` — updates an existing interaction with BLE session end data, auto-saves
+
+**`UserProfileRepository.shared`**
+- `getCurrent()` → `UserProfile?` — fetches most recent profile
+- `save(_:)` — inserts/updates and persists
+
+**Initialization (in `boop_iosApp.swift`):**
+```swift
+ModelContextProvider.shared.setModelContainer(container)
+```
+
+**`ModelContextProvider.shared`** — singleton that owns the single shared `ModelContext`. Repositories access it via a computed property (`ModelContextProvider.shared.context`), so no context is passed as an argument.
+
+**Note:** `@Query` in views (e.g. `BoopTimelineView`, `ContactsView`) is still used for reactive reads — repositories are for imperative access from managers and view actions.
 
 #### UserDataStore Actor (`DataStore/UserDataStore.swift`)
 
@@ -472,29 +503,27 @@ Local notification infrastructure for scheduling recurring reminders.
 
 ### BoopManager — Orchestration (`BoopManager.swift`, `@MainActor`)
 
-Central orchestrator tying BLE + UWB + location + persistence together. Injected as `@StateObject` at the app root and passed via `@EnvironmentObject`. Owns its own `ModelContext` for all boop persistence.
+Central orchestrator tying BLE + UWB + location together. Injected as `@StateObject` at the app root and passed via `@EnvironmentObject`. Delegates all persistence to the repository singletons (`ContactRepository`, `BoopInteractionRepository`).
 
 **Key Published State:**
 - `latestBoopEvent: BoopEvent?` — triggers proximity overlay animation on new boops
 
 **Dependencies (injected at app startup):**
-- `setModelContainer(_ container:)` — creates a private `ModelContext` for persistence
 - `setLocationManager(_ manager:)` — provides location data for path recording
 
 **Automatic Boop Flow:**
 1. `BoopManager` subscribes to `bluetoothManager.nearbyDevices` via Combine
 2. `processNearbyDevicesUpdate(_:)` detects a device entering `.ApproxTouching` state
 3. If not in cooldown for that peer, sends a `.boop` BLE message automatically
-4. `didReceiveBoop(from:displayName:)` creates `Contact` + `BoopInteraction` in SwiftData, sets `latestBoopEvent`
+4. `didReceiveBoop(from:displayName:)` calls `ContactRepository.findOrCreate()` + `BoopInteractionRepository.create()`, sets `latestBoopEvent`
 5. `BoopRangingView.onChange(of: latestBoopEvent)` shows the boop overlay animation
 
 **BLE Session Tracking:**
 - `didDeviceConnect(peripheralUUID:)` — records session start time
 - `didDeviceDisconnect(peripheralUUID:)` — triggers `handleSessionEnd()` which:
   1. Retrieves path coordinates from `LocationManager.getLocations(from:to:)` for the session window
-  2. If an existing `BoopInteraction` was created during the session (from a proximity boop), enriches it with `endTimestamp` and `pathCoordinates`
-  3. If no boop happened but session lasted >= 60 seconds, auto-creates a `BoopInteraction` with path data
-  4. Reverse-geocodes the current location for the `location` field if empty
+  2. If an existing `BoopInteraction` was created during the session, calls `BoopInteractionRepository.enrichWithSessionData()` with `endTimestamp`, `pathCoordinates`, and reverse-geocoded location
+  3. If no boop happened but session lasted >= 60 seconds, auto-creates via `BoopInteractionRepository.create()`
 
 **Observer Pattern:** Subscribes to `bluetoothManager.nearbyDevices` publisher via Combine. When a device enters touching range, triggers an automatic boop. On disconnect, enriches or creates interactions with location data.
 
@@ -523,7 +552,7 @@ boop_iosApp (ModelContainer + BoopManager + LocationManager)
 #### State Management Patterns
 
 - **`@Query`** — Views subscribe to SwiftData queries for automatic UI updates when models change
-- **`@Environment(\.modelContext)`** — Used for inserts and deletes
+- **Repository singletons** — `ContactRepository.shared`, `BoopInteractionRepository.shared`, `UserProfileRepository.shared` for all imperative data access (inserts, updates, deletes, fetches)
 - **`@EnvironmentObject`** — `BoopManager` and `LocationManager` injected at app root, available in all views
 - **`@StateObject`** — `BoopManager` and `LocationManager` lifecycle owned by `boop_iosApp`
 - **`@Published`** — Manager properties that drive UI (selections, display names, events)
@@ -532,9 +561,9 @@ boop_iosApp (ModelContainer + BoopManager + LocationManager)
 #### Data Flow: Boop → Timeline
 
 1. UWB detects touching distance → `BoopManager` automatically sends `.boop` BLE message
-2. `BoopManager.didReceiveBoop(from:displayName:)` finds/creates `Contact`, creates `BoopInteraction` with current location name, sets `latestBoopEvent`
+2. `BoopManager.didReceiveBoop()` → `ContactRepository.findOrCreate()` + `BoopInteractionRepository.create()` (auto-saved), sets `latestBoopEvent`
 3. `BoopRangingView.onChange(of: latestBoopEvent)` shows animated boop overlay
-4. When BLE device disconnects → `BoopManager.handleSessionEnd()` enriches the existing interaction with `endTimestamp` and `pathCoordinates` from LocationManager
+4. When BLE device disconnects → `BoopManager.handleSessionEnd()` → `BoopInteractionRepository.enrichWithSessionData()` (auto-saved)
 5. `@Query` automatically picks up the new/updated interaction → UI updates
 
 #### Data Flow: Location → Interaction
@@ -542,7 +571,7 @@ boop_iosApp (ModelContainer + BoopManager + LocationManager)
 1. `LocationManager` continuously tracks coordinates into a rolling buffer (up to 3,500 points)
 2. On BLE connect, `BoopManager` records `deviceSessionStart[peripheralUUID] = Date()`
 3. On BLE disconnect, `BoopManager` calls `locationManager.getLocations(from: sessionStart, to: now)` to get the path
-4. Path coordinates are stored as JSON-encoded `[PathCoordinate]` in `BoopInteraction.pathCoordinatesData`
+4. `BoopInteractionRepository.enrichWithSessionData()` stores the path + end timestamp (auto-saved)
 5. `BoopInteractionDetailView` renders the path on a `Map` with start/end pins and a polyline
 
 #### Card Components
@@ -740,18 +769,19 @@ Declared in `Info.plist`:
 
 ### Working with SwiftData
 
-1. Define models with `@Model` macro
+1. Define models with `@Model` macro in `Model/PersistentModel/`
 2. Use `var` for all stored properties (even UUIDs)
 3. Set up relationships with `@Relationship` attribute
-4. Use `@Query` in views for automatic updates
-5. Access `@Environment(\.modelContext)` for inserts/deletes
+4. Use `@Query` in views for reactive reads
+5. Use repository singletons for imperative access (inserts, updates, deletes, fetches)
+6. Never use `@Environment(\.modelContext)` or raw `FetchDescriptor` in views or managers — route through repositories
 
 ### Handling Boop Events
 
-Persistence is handled entirely in `BoopManager` (not in views):
-1. `BoopManager.didReceiveBoop()` finds/creates `Contact` and creates `BoopInteraction` via its own `ModelContext`
-2. On BLE disconnect, `BoopManager.handleSessionEnd()` enriches the interaction with `endTimestamp` and `pathCoordinates`
-3. If no boop happened during a session but it lasted >= 60 seconds, an interaction is auto-created
+Persistence is handled via repository singletons (not direct `modelContext` access):
+1. `BoopManager.didReceiveBoop()` → `ContactRepository.findOrCreate()` + `BoopInteractionRepository.create()` (auto-saved)
+2. On BLE disconnect, `BoopManager.handleSessionEnd()` → `BoopInteractionRepository.enrichWithSessionData()` (auto-saved)
+3. If no boop happened during a session but it lasted >= 60 seconds, `BoopInteractionRepository.create()` auto-creates one
 4. `BoopRangingView` observes `latestBoopEvent` only for overlay animation display
 5. SwiftData automatically updates all `@Query` views (e.g. `BoopTimelineView`)
 
@@ -798,9 +828,10 @@ To fetch a specific bug by its `BUG-N` ID, first fetch the database, then find t
 ### Runtime Issues
 
 **SwiftData not updating:**
-- Verify `@Query` is used in view
-- Check that models are inserted via `modelContext.insert()`
+- Verify `@Query` is used in view for reactive reads
+- Check that models are inserted/updated via repository methods (which auto-save)
 - Ensure container includes all model types in schema
+- Ensure repositories are initialized with the container in `boop_iosApp.swift`
 
 **BLE not discovering:**
 - Must use physical device (simulator has limited BLE)

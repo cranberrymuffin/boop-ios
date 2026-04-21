@@ -16,7 +16,7 @@ The core orchestration layer that manages the entire boop interaction flow, pers
 - **Responsibilities:**
   - Subscribes to UWB distance updates and automatically triggers boops when devices enter touching range
   - Manages per-peer cooldown to prevent duplicate boops
-  - Owns its own `ModelContext` for all boop persistence (contact creation, interaction creation)
+  - Delegates all persistence to repository singletons (`ContactRepository`, `BoopInteractionRepository`)
   - Tracks BLE sessions (connect/disconnect) and enriches interactions with path coordinates from `LocationManager`
   - Auto-creates interactions for sessions lasting >= 60 seconds even without a proximity boop
   - Coordinates between BluetoothManager, LocationManager, and UI layer
@@ -96,11 +96,21 @@ Actor-based UserDefaults wrapper. Its only remaining role is persisting the loca
   - Persists the local device UUID (`com.boop.localDeviceUUID`)
   - Thread-safe data access via Swift actor
 
-- **Note:** All profile data (name, birthday, bio, avatar, gradient colors) is stored exclusively in SwiftData. Profile management uses `ModelContext` directly in views.
+- **Note:** All profile data (name, birthday, bio, avatar, gradient colors) is stored exclusively in SwiftData via repository singletons.
 
 - **Location:** `/boop-ios/DataStore/UserDataStore.swift`
 
-#### 6. **LocationManager** (`LocationManager.swift`)
+#### 6. **Model Repositories** (`Model/ModelRepository/`)
+`@MainActor` singleton classes providing a clean data access API for all SwiftData operations. All repositories share a single `ModelContext` owned by `ModelContextProvider.shared`, and auto-save after every mutation. No code outside the repositories should use `FetchDescriptor` or `modelContext` directly.
+
+- **`ModelContextProvider.shared`** — owns the single shared `ModelContext`, initialized with the `ModelContainer` at app startup
+- **`ContactRepository.shared`** — find, upsert, delete contacts
+- **`BoopInteractionRepository.shared`** — create interactions, check duplicates, find latest, enrich with session data
+- **`UserProfileRepository.shared`** — get current profile, save profile
+
+- **Initialized in:** `boop_iosApp.swift` via `ModelContextProvider.shared.setModelContainer(container)`
+
+#### 7. **LocationManager** (`LocationManager.swift`)
 CoreLocation-based continuous location tracker with path recording.
 
 - **Responsibilities:**
@@ -118,7 +128,7 @@ CoreLocation-based continuous location tracker with path recording.
 
 - **Location:** `/boop-ios/LocationManager.swift`
 
-#### 7. **StorageCoordinator** (`StorageCoordinator.swift`)
+#### 8. **StorageCoordinator** (`StorageCoordinator.swift`)
 Async storage initialization coordinator to prevent race conditions.
 
 - **Responsibilities:**
@@ -294,7 +304,7 @@ UserDefaults is used only for the local device UUID. All profile data is stored 
      - Fetches profile from SwiftData via `modelContext.fetch(FetchDescriptor<UserProfile>)`
      - Display mode: AnimatedMeshGradient background + ProfileDisplayCard with avatar
      - Edit mode: Embeds ProfileSetupView with current profile data
-     - Saves updated profile via `modelContext.insert()`
+     - Saves updated profile via `UserProfileRepository.shared.save()`
 
 6. **ContactDetailView / BoopHistoryView** (in `Views/ContactDetailView.swift`)
    - **Purpose:** Display a contact's info and interaction history with them
@@ -354,15 +364,14 @@ Located in `/boop-ios/DesignSystem/`:
    - When `BoopManager` detects a peer entering `ApproxTouching` state (≤7cm)
    - Automatically sends a `.boop` BLE message (no user action needed)
    - Receiving side's `BoopManager.didReceiveBoop(from:displayName:)` fires
-   - Creates `Contact` (if new) and `BoopInteraction` in SwiftData
+   - `ContactRepository.findOrCreate()` upserts the contact, `BoopInteractionRepository.create()` inserts the interaction (both auto-save)
    - Sets `latestBoopEvent`, triggering UI overlay in `BoopRangingView`
 
 5. **Session End & Location Enrichment:**
    - When BLE device disconnects, `BoopManager.handleSessionEnd()` fires
    - Retrieves path coordinates from `LocationManager.getLocations(from:to:)` for the session time window
-   - Enriches existing `BoopInteraction` with `endTimestamp` and `pathCoordinates`
-   - Reverse-geocodes current location if `location` field is empty
-   - If no boop occurred but session lasted >= 60 seconds, auto-creates an interaction
+   - `BoopInteractionRepository.enrichWithSessionData()` updates the interaction with `endTimestamp`, `pathCoordinates`, and location (auto-saves)
+   - If no boop occurred but session lasted >= 60 seconds, `BoopInteractionRepository.create()` auto-creates an interaction
 
 6. **Timeline Display:**
    - `@Query` automatically picks up new/updated interactions
@@ -531,6 +540,11 @@ boop-ios/
 │   │   ├── UserProfile.swift
 │   │   ├── BoopInteraction.swift  # Includes path coordinate storage
 │   │   └── NotificationIntent.swift
+│   ├── ModelRepository/           # Singleton data access layer
+│   │   ├── ModelContextProvider.swift  # Shared ModelContext owner
+│   │   ├── ContactRepository.swift
+│   │   ├── BoopInteractionRepository.swift
+│   │   └── UserProfileRepository.swift
 │   ├── Boop.swift                 # Boop + BoopEvent value types
 │   ├── BluetoothMessage.swift     # Binary BLE protocol
 │   ├── NearbyDevice.swift         # UI model
