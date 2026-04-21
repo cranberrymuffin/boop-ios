@@ -4,7 +4,6 @@ import CoreLocation
 import Combine
 import UIKit
 import SwiftUI
-import SwiftData
 
 // MARK: - Boop Manager
 /// Manages the queue of devices that are in "boop" range (touching distance)
@@ -28,8 +27,6 @@ class BoopManager: NSObject, ObservableObject {
     // MARK: - Dependencies
     private var bluetoothManager: BluetoothManager?
     private var locationManager: LocationManager?
-    private var modelContainer: ModelContainer?
-    private var modelContext: ModelContext?
 
     // MARK: - Private Properties
     private var cancellables = Set<AnyCancellable>()
@@ -52,11 +49,6 @@ class BoopManager: NSObject, ObservableObject {
     }
 
     // MARK: - Configuration
-
-    func setModelContainer(_ container: ModelContainer) {
-        self.modelContainer = container
-        self.modelContext = ModelContext(container)
-    }
 
     func setLocationManager(_ manager: LocationManager) {
         self.locationManager = manager
@@ -187,98 +179,18 @@ class BoopManager: NSObject, ObservableObject {
 
     // MARK: - Persistence
 
-    /// Find or create a Contact for the given sender UUID and profile data.
-    private func findOrCreateContact(senderUUID: UUID, displayName: String, birthday: Date?, bio: String?, gradientColors: [Color]) -> Contact? {
-        guard let modelContext else {
-            print("⚠️ BoopManager: ModelContext not available")
-            return nil
-        }
-
-        let descriptor = FetchDescriptor<Contact>(predicate: #Predicate { $0.uuid == senderUUID })
-        let existingContacts = (try? modelContext.fetch(descriptor)) ?? []
-
-        if let existing = existingContacts.first {
-            existing.displayName = displayName
-            existing.birthday = birthday
-            existing.bio = bio
-            existing.gradientColorsData = gradientColors.map { Contact.colorToString($0) }
-            return existing
-        }
-
-        let contact = Contact(
-            uuid: senderUUID,
-            displayName: displayName,
-            birthday: birthday,
-            bio: bio,
-            gradientColors: gradientColors
-        )
-        modelContext.insert(contact)
-        return contact
-    }
-
-    /// Create a BoopInteraction and associate it with a contact.
-    private func createInteraction(title: String, location: String, timestamp: Date, endTimestamp: Date? = nil, contact: Contact, pathCoordinates: [CLLocationCoordinate2D] = []) -> BoopInteraction {
-        let interaction = BoopInteraction(
-            title: title,
-            location: location,
-            timestamp: timestamp,
-            endTimestamp: endTimestamp,
-            contact: contact,
-            pathCoordinates: pathCoordinates
-        )
-        modelContext?.insert(interaction)
-        contact.interactions.append(interaction)
-        return interaction
-    }
-
-    /// Check if a duplicate interaction already exists within the duplicate window.
-    private func isDuplicateInteraction(contactUUID: UUID, displayName: String, timestamp: Date) -> Bool {
-        guard let modelContext else { return false }
-
-        let windowStart = timestamp.addingTimeInterval(-duplicateWindow)
-        let windowEnd = timestamp.addingTimeInterval(duplicateWindow)
-        let descriptor = FetchDescriptor<BoopInteraction>(predicate: #Predicate {
-            $0.timestamp >= windowStart && $0.timestamp <= windowEnd
-        })
-        let interactions = (try? modelContext.fetch(descriptor)) ?? []
-        return interactions.contains { $0.contact?.uuid == contactUUID && $0.title == displayName }
-    }
-
-    private func debugInteractionFetching(_ contactUUID: UUID, _ modelContext: ModelContext) {
-        #if DEBUG
-        let generalDescriptor = FetchDescriptor<BoopInteraction>(predicate: #Predicate {
-            $0.contact?.uuid == contactUUID
-        })
-        let allInteractionsForContact = (try? modelContext.fetch(generalDescriptor)) ?? []
-        for interaction in allInteractionsForContact {
-            print("------ boop interaction ------")
-            print(interaction.id, ", ", interaction.timestamp)
-        }
-        print("------ boop interaction ------")
-        #endif
-    }
-    
-    
-    /// Find an existing interaction for a contact within a session time window.
-    private func findInteractionInSession(contactUUID: UUID, sessionStart: Date, sessionEnd: Date) -> BoopInteraction? {
-        guard let modelContext else { return nil }
-
-        let descriptor = FetchDescriptor<BoopInteraction>(predicate: #Predicate {$0.contact?.uuid == contactUUID }, sortBy: [SortDescriptor(\BoopInteraction.timestamp, order: .reverse)]
-        )
-        let interactions = (try? modelContext.fetch(descriptor)) ?? []
-        debugInteractionFetching(contactUUID, modelContext)
-        return interactions.first { $0.contact?.uuid == contactUUID }
-    }
-
     /// Handle a received boop: create contact + interaction, broadcast event.
     private func handleBoopReceived(boop: Boop, event: BoopEvent) {
-        guard isDuplicateInteraction(contactUUID: boop.senderUUID, displayName: boop.displayName, timestamp: event.timestamp) == false else {
+        let interactionRepo = BoopInteractionRepository.shared
+        let contactRepo = ContactRepository.shared
+
+        guard !interactionRepo.isDuplicate(contactUUID: boop.senderUUID, displayName: boop.displayName, timestamp: event.timestamp, window: duplicateWindow) else {
             print("⏭️ BoopManager: Skipping duplicate interaction for \(boop.senderUUID.uuidString.prefix(8))")
             return
         }
 
-        guard let contact = findOrCreateContact(
-            senderUUID: boop.senderUUID,
+        guard let contact = contactRepo.findOrCreate(
+            uuid: boop.senderUUID,
             displayName: boop.displayName,
             birthday: boop.birthday,
             bio: boop.bio,
@@ -287,14 +199,12 @@ class BoopManager: NSObject, ObservableObject {
 
         let locationName = locationManager?.currentLocationName ?? ""
 
-        let interaction = createInteraction(
+        guard let interaction = interactionRepo.create(
             title: boop.displayName,
             location: locationName,
             timestamp: event.timestamp,
             contact: contact
-        )
-
-        try? modelContext?.save()
+        ) else { return }
 
         LiveActivityManager.shared.startBoopLiveActivity(
             contactName: boop.displayName,
@@ -307,6 +217,8 @@ class BoopManager: NSObject, ObservableObject {
 
     private func handleSessionEnd(peripheralUUID: UUID) {
         let now = Date()
+        let interactionRepo = BoopInteractionRepository.shared
+        let contactRepo = ContactRepository.shared
 
         guard let sessionStart = deviceSessionStart[peripheralUUID] else {
             print("⚠️ BoopManager: No session start for \(peripheralUUID.uuidString.prefix(8))")
@@ -328,27 +240,24 @@ class BoopManager: NSObject, ObservableObject {
         let pathCoords = locationManager?.getLocations(from: sessionStart, to: now) ?? []
 
         // Try to find an existing interaction created during this session (from a proximity boop)
-        if let existingInteraction = findInteractionInSession(
-            contactUUID: senderUUID,
-            sessionStart: sessionStart,
-            sessionEnd: now
-        ) {
+        if let existingInteraction = interactionRepo.findLatest(forContactUUID: senderUUID) {
             // Enrich the existing boop with session data
-            existingInteraction.endTimestamp = now
-            if !pathCoords.isEmpty {
-                existingInteraction.pathCoordinates = pathCoords
-            }
-            // Update location name if we have path data and the existing one is empty
             if existingInteraction.location.isEmpty, let locationManager {
                 Task {
                     let name = await locationManager.reverseGeocodeCurrentLocation()
-                    if !name.isEmpty {
-                        existingInteraction.location = name
-                    }
-                    try? self.modelContext?.save()
+                    interactionRepo.enrichWithSessionData(
+                        existingInteraction,
+                        endTimestamp: now,
+                        pathCoordinates: pathCoords,
+                        location: name
+                    )
                 }
             } else {
-                try? modelContext?.save()
+                interactionRepo.enrichWithSessionData(
+                    existingInteraction,
+                    endTimestamp: now,
+                    pathCoordinates: pathCoords
+                )
             }
             print("✅ BoopManager: Updated existing interaction with session data (path: \(pathCoords.count) points)")
         } else if sessionDuration >= minimumSessionDuration {
@@ -361,11 +270,9 @@ class BoopManager: NSObject, ObservableObject {
                     locationName = ""
                 }
 
-                // We need a display name — try DataStore or use a fallback
-                let displayName: String
-                if let contact = findOrCreateContact(senderUUID: senderUUID, displayName: "Simulated Friend", birthday: nil, bio: nil, gradientColors: []) {
-                    displayName = contact.displayName
-                    _ = createInteraction(
+                if let contact = contactRepo.findOrCreate(uuid: senderUUID, displayName: "Simulated Friend", birthday: nil, bio: nil, gradientColors: []) {
+                    let displayName = contact.displayName
+                    _ = interactionRepo.create(
                         title: displayName,
                         location: locationName,
                         timestamp: sessionStart,
@@ -373,7 +280,6 @@ class BoopManager: NSObject, ObservableObject {
                         contact: contact,
                         pathCoordinates: pathCoords
                     )
-                    try? self.modelContext?.save()
                     print("✅ BoopManager: Auto-created interaction for long session (\(Int(sessionDuration))s, path: \(pathCoords.count) points)")
                 }
             }
