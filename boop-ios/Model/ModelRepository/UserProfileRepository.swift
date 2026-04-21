@@ -11,13 +11,9 @@ import SwiftData
 @MainActor
 final class UserProfileRepository {
     static let shared = UserProfileRepository()
-    private var modelContext: ModelContext?
+    private var modelContext: ModelContext? { ModelContextProvider.shared.context }
 
     private init() {}
-
-    func setModelContainer(_ container: ModelContainer) {
-        self.modelContext = ModelContext(container)
-    }
 
     // MARK: - Read
 

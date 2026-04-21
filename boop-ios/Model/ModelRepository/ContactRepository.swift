@@ -12,13 +12,9 @@ import SwiftUI
 @MainActor
 final class ContactRepository {
     static let shared = ContactRepository()
-    private var modelContext: ModelContext?
+    private var modelContext: ModelContext? { ModelContextProvider.shared.context }
 
     private init() {}
-
-    func setModelContainer(_ container: ModelContainer) {
-        self.modelContext = ModelContext(container)
-    }
 
     // MARK: - Read
 
