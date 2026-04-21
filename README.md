@@ -1,26 +1,31 @@
 # Boop iOS
 
-An offline social iOS app that enables users to discover, connect, and interact with nearby friends using Ultra-Wideband (UWB) and Bluetooth Low Energy (BLE) technology. When users come within touching distance, they can "boop" each other to create connections and track interactions.
+An offline social iOS app that enables users to discover, connect, and interact with nearby friends using Ultra-Wideband (UWB) and Bluetooth Low Energy (BLE) technology. When users come within touching distance, they can "boop" each other to create connections and track interactions with location-aware path recording.
 
 ## Overview
 
-Boop is a peer-to-peer proximity app that operates entirely offline. It uses BLE for device discovery and communication, combined with UWB for precise distance measurement (down to centimeter-level accuracy). The app enables spontaneous social interactions through physical proximity rather than traditional networking.
+Boop is a peer-to-peer proximity app that operates entirely offline. It uses BLE for device discovery and communication, combined with UWB for precise distance measurement (down to centimeter-level accuracy). The app enables spontaneous social interactions through physical proximity rather than traditional networking. Each interaction records the path the user traveled during the BLE session, displayed as a map polyline in the timeline.
 
 ## Architecture
 
 ### Key Services
 
 #### 1. **BoopManager** (`BoopManager.swift`)
-The core orchestration layer that manages the entire boop interaction flow.
+The core orchestration layer that manages the entire boop interaction flow, persistence, and location enrichment.
 
 - **Responsibilities:**
   - Subscribes to UWB distance updates and automatically triggers boops when devices enter touching range
   - Manages per-peer cooldown to prevent duplicate boops
-  - Coordinates between BluetoothManager and UI layer
+  - Owns its own `ModelContext` for all boop persistence (contact creation, interaction creation)
+  - Tracks BLE sessions (connect/disconnect) and enriches interactions with path coordinates from `LocationManager`
+  - Auto-creates interactions for sessions lasting >= 60 seconds even without a proximity boop
+  - Coordinates between BluetoothManager, LocationManager, and UI layer
   - Implements `BoopDelegate` protocol to receive boop events
 
 - **Key Properties:**
-  - `latestBoopEvent: BoopEvent?` — most recently completed boop event (triggers UI and persistence)
+  - `latestBoopEvent: BoopEvent?` — most recently completed boop event (triggers UI)
+  - `deviceSessionStart: [UUID: Date]` — tracks when each BLE session began
+  - `peripheralToSenderUUID: [UUID: UUID]` — maps peripheral UUIDs to sender UUIDs
 
 - **Location:** `/boop-ios/BoopManager.swift`
 
@@ -84,24 +89,36 @@ Handles Ultra-Wideband ranging for precise distance measurement.
 
 - **Location:** `/boop-ios/Bluetooth/UWBManager.swift:47`
 
-#### 5. **DataStore** (`DataStore/DataStore.swift`)
-Actor-based unified data access layer with in-memory caching.
+#### 5. **UserDataStore** (`DataStore/UserDataStore.swift`)
+Actor-based UserDefaults wrapper. Its only remaining role is persisting the local device UUID for BLE identity.
 
 - **Responsibilities:**
-  - Provides async interface to UserDefaults
-  - Implements warmup pattern for frequently accessed data
-  - Manages user profile data (name, avatar)
+  - Persists the local device UUID (`com.boop.localDeviceUUID`)
   - Thread-safe data access via Swift actor
 
+- **Note:** All profile data (name, birthday, bio, avatar, gradient colors) is stored exclusively in SwiftData. Profile management uses `ModelContext` directly in views.
+
+- **Location:** `/boop-ios/DataStore/UserDataStore.swift`
+
+#### 6. **LocationManager** (`LocationManager.swift`)
+CoreLocation-based continuous location tracker with path recording.
+
+- **Responsibilities:**
+  - Maintains a rolling buffer of up to 3,500 timestamped coordinates
+  - Filters GPS noise (minimum 1.0m between recorded points)
+  - Provides time-windowed path retrieval for BLE session enrichment
+  - Periodically reverse-geocodes current location
+
 - **Key Methods:**
-  - `warmup()`: Pre-loads data into cache during app initialization
-  - `getUserProfile()`: Returns complete user profile data
-  - `setUserProfile(_:)`: Saves profile to both cache and UserDefaults
-  - `clear()`: Removes all user data (for logout)
+  - `requestPermissionIfNeeded()`: Requests when-in-use authorization
+  - `startTracking()` / `stopTracking()`: Controls location updates
+  - `getLocations(from:to:)`: Returns coordinates within a time window
+  - `snapshotPath()`: Returns full buffer as coordinate array
+  - `reverseGeocodeCurrentLocation()`: Human-readable location name
 
-- **Location:** `/boop-ios/DataStore/DataStore.swift:5`
+- **Location:** `/boop-ios/LocationManager.swift`
 
-#### 6. **StorageCoordinator** (`StorageCoordinator.swift`)
+#### 7. **StorageCoordinator** (`StorageCoordinator.swift`)
 Async storage initialization coordinator to prevent race conditions.
 
 - **Responsibilities:**
@@ -115,53 +132,56 @@ Async storage initialization coordinator to prevent race conditions.
 
 #### **SwiftData** (Primary Database)
 
-The app uses Apple's SwiftData framework for local persistence with a schema containing two main models:
+The app uses Apple's SwiftData framework for local persistence. All `@Model` classes live in `Model/PersistentModel/`.
 
 **Models:**
 
-1. **Contact** (`model/Contact.swift`)
+1. **Contact** (`Model/PersistentModel/Contact.swift`)
    - `uuid: UUID` - Unique identifier for the contact (matches sender's device UUID)
    - `displayName: String` - User's display name
-   - `interactions: [BoopInteraction]` - Array of boop interactions with this contact
-   - **Location:** `/boop-ios/model/Contact.swift:13`
+   - `birthday: Date?`, `bio: String?` - Profile fields received via BLE
+   - `gradientColorsData: [String]` - Gradient colors stored as strings
+   - `interactions: [BoopInteraction]` - Array of boop interactions (cascade delete)
 
-2. **UserProfile** (`model/UserProfile.swift`)
+2. **UserProfile** (`Model/PersistentModel/UserProfile.swift`)
    - `name: String` - User's display name
    - `createdAt: Date` - Profile creation timestamp
-   - `avatarData: Data?` - Optional profile photo
-   - **Location:** `/boop-ios/model/UserProfile.swift:5`
+   - `avatarData: Data?` - Profile photo (selected via PhotosPicker)
+   - `birthday: Date?`, `bio: String?` - Optional profile fields
+   - `gradientColorsData: [String]` - Gradient colors stored as strings
 
-3. **BoopInteraction** (`model/BoopInteraction.swift`)
+3. **BoopInteraction** (`Model/PersistentModel/BoopInteraction.swift`)
    - `id: UUID` - Unique interaction identifier
    - `title: String` - Interaction title (contact's name)
-   - `location: String` - Location of interaction (currently placeholder)
+   - `location: String` - Reverse-geocoded location name
    - `timestamp: Date` - When the boop occurred
+   - `endTimestamp: Date?` - When the BLE session ended
    - `imageData: [Data]` - Optional photos from the interaction
-   - **Location:** `/boop-ios/model/BoopInteraction.swift:13`
+   - `pathCoordinatesData: Data?` - JSON-encoded path traveled during interaction
+   - `pathCoordinates: [CLLocationCoordinate2D]` - Computed property for encode/decode
+   - `contact: Contact?` - Inverse relationship
+
+4. **NotificationIntent** (`Model/PersistentModel/NotificationIntent.swift`)
+   - `id: UUID` - Unique notification identifier
+   - `typeIdentifier: NotificationTypeIdentifier` - `.contactReminder` or `.weeklyPlanning`
+   - Trigger config: kind, interval, weekday, hour, minute
+   - `isActive: Bool` - Whether the notification schedule is enabled
 
 **Configuration:**
-- Container setup: `/boop-ios/boop_iosApp.swift:15`
-- Schema: `[Contact.self, UserProfile.self, BoopInteraction.self]`
+- Container setup: `/boop-ios/boop_iosApp.swift`
+- Schema: `[Contact.self, UserProfile.self, BoopInteraction.self, NotificationIntent.self]`
 - Storage: Persistent (not in-memory)
 - Directory initialization: Handled by `StorageCoordinator`
 
-#### **UserDefaults** (Session & Preferences)
+#### **UserDefaults** (Device Identity Only)
 
-Used for lightweight data and app state:
+UserDefaults is used only for the local device UUID. All profile data is stored in SwiftData.
 
 **Keys** (`UserDefaults/UserDefaultsKeys.swift`):
-- `boopName`: User's display name
-- `boopAvatarData`: Profile photo data
-- `boopBirthday`: User's birthday
-- `boopBio`: User's bio
-- `boopGradientColors`: Profile gradient color strings
-- `profileComplete`: Whether profile setup is complete
 - `com.boop.localDeviceUUID`: Persistent device UUID for BLE identity
 
 **Access Pattern:**
-- All UserDefaults access is routed through `DataStore` for consistency
-- In-memory cache layer for performance
-- Warmup pattern loads frequently accessed keys on app start
+- Accessed through `UserDataStore` actor for thread safety
 
 #### **Data Transfer Models**
 
@@ -188,22 +208,23 @@ Used for lightweight data and app state:
 
 #### **Entry Point**
 
-**boop_iosApp** (`boop_iosApp.swift:12`)
+**boop_iosApp** (`boop_iosApp.swift`)
 - App entry point decorated with `@main`
-- Initializes SwiftData schema and model container
-- Sets up `StorageCoordinator` and `DataStore`
-- Creates global `BoopManager` as environment object
+- Initializes SwiftData schema and model container (Contact, UserProfile, BoopInteraction, NotificationIntent)
+- Sets up `StorageCoordinator`
+- Creates global `BoopManager` and `LocationManager` as environment objects
+- Injects `ModelContainer` and `LocationManager` into `BoopManager`
+- Requests location and notification permissions
+- Schedules weekly planning notification
+- Handles deep links (`boop://timeline` or `boop://timeline/{interactionID}`)
 - Shows loading screen while container initializes
 - Navigates to `RootView` once ready
 
 #### **Root Navigation**
 
-**RootView** (`RootView.swift:3`)
-- First view after app initialization
-- Checks if user profile exists via `DataStore`
-- **Routes:**
-  - Profile exists → `MainTabView`
-  - No profile → `ProfileSetupView` (setup mode)
+**RootView** (`Views/RootView.swift`)
+- Simple wrapper that passes tab selection bindings to `MainTabView`
+- No longer checks for profile existence (profile check moved to ProfileView)
 
 #### **Main Interface**
 
@@ -241,52 +262,63 @@ Used for lightweight data and app state:
      - `NavigationLink` push → `ContactDetailView` (when contact tapped)
    - **Data Source:** SwiftData `@Query` for `Contact` models
 
-3. **BoopRangingView** (`BoopRangingView.swift`)
+3. **BoopRangingView** (`Views/BoopRangingView.swift`)
    - **Purpose:** Automatic proximity-based boop detection
    - **Features:**
      - `ProgressView` shown while scanning for nearby devices
      - Fully automatic boop: no manual selection required
      - When a peer enters UWB touching range (≤7cm), a `.boop` BLE message is sent automatically
-     - Receives `BoopManager.latestBoopEvent` and creates `Contact` + `BoopInteraction` in SwiftData
      - Animated boop success overlay showing display name
+     - Debug controls for simulating device connections and sessions
    - **Data Source:**
-     - `BoopManager.latestBoopEvent` for boop events
-     - SwiftData contacts for saved contact lookup
-   - **Lifecycle:** Always-visible tab; handles boop persistence for the entire app
+     - `BoopManager.latestBoopEvent` for boop event UI overlay
+   - **Note:** Persistence is handled entirely by `BoopManager`, not by this view
 
-4. **ProfileSetupView** (`ProfileSetupView.swift:4`)
+4. **ProfileSetupView** (`Views/ProfileSetupView.swift`)
    - **Purpose:** User profile creation and editing
    - **Modes:**
-     - Setup mode (first launch): Blocks navigation until complete
-     - Edit mode (from tab): Allows saving and dismissing
+     - Setup mode (first launch): Requires name, birthday, and bio
+     - Edit mode (from ProfileView): Only requires name
    - **Features:**
-     - Profile photo picker with `PhotosUI` integration
-     - Name text field with validation
-     - Save/Continue button (enabled when name is not empty)
-   - **Data:** Saves to both SwiftData (`UserProfile` model) and `DataStore`
+     - `PhotosPicker` for profile photo selection (stored as `Data` in `UserProfile.avatarData`)
+     - Circular avatar preview with "+" overlay for editing
+     - Name, birthday (DatePickerField), bio (StyledTextField)
+     - Gradient color picker via `DisplayColorPickerSheet`
+     - AnimatedMeshGradient background
+   - **Data:** Creates `UserProfile` model and passes to `onSave` callback. Profile is saved to SwiftData via `ModelContext` in the parent view.
 
-5. **ContactDetailView / BoopHistoryView** (in `ContactDetailView.swift`)
+5. **ProfileView** (`Views/ProfileView.swift`)
+   - **Purpose:** Display and edit the user's profile
+   - **States:** `loadingProfile`, `editingProfile`, `noProfile`, `displayProfile`
+   - **Features:**
+     - Fetches profile from SwiftData via `modelContext.fetch(FetchDescriptor<UserProfile>)`
+     - Display mode: AnimatedMeshGradient background + ProfileDisplayCard with avatar
+     - Edit mode: Embeds ProfileSetupView with current profile data
+     - Saves updated profile via `modelContext.insert()`
+
+6. **ContactDetailView / BoopHistoryView** (in `Views/ContactDetailView.swift`)
    - **Purpose:** Display a contact's info and interaction history with them
    - **Features:**
      - Contact profile header
      - Chronological list of all boop interactions with this contact
-     - Shows timestamp and location for each interaction
+     - Shows timestamp, location, and path map for each interaction
    - **Data Source:** `Contact.interactions` array via `BoopInteractionTimelineBody`
 
 #### **Reusable Components**
 
 Located in `boop-ios/Components/`:
 
-- **BoopInteractionCard**: Displays individual boop interaction details
-- **BoopInteractionTimelineBody**: Reusable timeline body (section headers + cards); shared by `BoopTimelineView` and `ContactDetailView`
+- **BoopInteractionCard**: Displays individual boop interaction details with title, location, relative time, and thumbnails
+- **BoopInteractionTimelineBody**: Reusable timeline body (section headers + cards); shared by `BoopTimelineView` and `ContactDetailView`. Also contains `BoopInteractionDetailView` with map display for path coordinates.
 - **ContactInteractionCard**: Displays contact summary with recent interaction info
-- **ProfileDisplayCard**: Profile info card
+- **ProfileDisplayCard**: Profile info card with avatar thumbnail, display name, birthday, and bio
 
 Located in `boop-ios/Components/Gradient/`:
 
-- **ProfilePhotoSelector**: Avatar image picker component
 - **StyledTextField**: Consistent text field styling
 - **AnimatedMeshGradient**: Animated 3x3 MeshGradient background for profiles
+- **DatePickerField**: Two-step date+time picker component
+- **DisplayColorPickerSheet**: Gradient color selection sheet
 
 #### **Design System**
 
@@ -322,13 +354,20 @@ Located in `/boop-ios/DesignSystem/`:
    - When `BoopManager` detects a peer entering `ApproxTouching` state (≤7cm)
    - Automatically sends a `.boop` BLE message (no user action needed)
    - Receiving side's `BoopManager.didReceiveBoop(from:displayName:)` fires
-   - Sets `latestBoopEvent`, triggering persistence + UI overlay
+   - Creates `Contact` (if new) and `BoopInteraction` in SwiftData
+   - Sets `latestBoopEvent`, triggering UI overlay in `BoopRangingView`
 
-5. **Persistence:**
-   - `BoopRangingView.handleNewBoop()` creates `Contact` (if new) and `BoopInteraction`
-   - Saved to SwiftData
-   - `BoopTimelineView` shows animated display name overlay
-   - `@Query` updates timeline automatically
+5. **Session End & Location Enrichment:**
+   - When BLE device disconnects, `BoopManager.handleSessionEnd()` fires
+   - Retrieves path coordinates from `LocationManager.getLocations(from:to:)` for the session time window
+   - Enriches existing `BoopInteraction` with `endTimestamp` and `pathCoordinates`
+   - Reverse-geocodes current location if `location` field is empty
+   - If no boop occurred but session lasted >= 60 seconds, auto-creates an interaction
+
+6. **Timeline Display:**
+   - `@Query` automatically picks up new/updated interactions
+   - `BoopInteractionCard` displays interaction with location and relative time
+   - `BoopInteractionDetailView` shows path on a `Map` with start/end pins and polyline
 
 ## Technical Details
 
@@ -402,18 +441,20 @@ let text = formatter.localizedString(for: date, relativeTo: Date())
 
 ### Thread Safety
 
-- `BoopManager`: `@MainActor` - all UI updates on main thread
+- `BoopManager`: `@MainActor` - all UI updates and persistence on main thread
 - `BluetoothManager`: `@MainActor` - Bluetooth state changes on main thread
-- `DataStore`: Swift actor - automatic thread-safe data access
+- `LocationManager`: `@MainActor` - location updates forwarded via `Task { @MainActor in ... }`
+- `UserDataStore`: Swift actor - automatic thread-safe data access
 - `StorageCoordinator`: Swift actor - safe async initialization
 
 ### Performance Optimizations
 
-1. **In-memory Caching:** DataStore pre-loads frequently accessed data
+1. **SwiftData Queries:** `@Query` provides efficient, reactive data access
 2. **Async Storage Init:** StorageCoordinator prevents blocking UI during setup
 3. **Lazy Loading:** UI components use `LazyVStack` for large lists
 4. **Combine Publishers:** Reactive updates for device discovery and distance changes
 5. **Stale Device Removal:** Automatic cleanup of disconnected devices
+6. **Location Buffer:** Rolling buffer with distance filter prevents GPS noise accumulation
 
 ## Build & Run
 
@@ -452,25 +493,31 @@ xcodebuild -scheme boop-ios clean
 Declared in `Info.plist`:
 - `NSBluetoothAlwaysUsageDescription`: Required for BLE advertising and scanning
 - `NSBluetoothPeripheralUsageDescription`: Required for acting as BLE peripheral
+- `NSLocationWhenInUseUsageDescription`: Required for path recording during interactions
+- Local notification permissions requested at app startup
 
 ## Project Structure
 
 ```
 boop-ios.xcodeproj/
 boop-ios/
-├── boop_iosApp.swift              # App entry point
-├── RootView.swift                 # Root navigation
-├── MainTabView.swift              # Main tab container (4 tabs)
-├── BoopTimelineView.swift         # Timeline feed
-├── BoopRangingView.swift          # Proximity-based auto-boop
-├── BoopInteractionListView.swift  # Demo/preview list view
-├── ContactsView.swift             # Contacts list
-├── ContactDetailView.swift        # Contact detail + boop history
-├── ProfileView.swift              # Profile display/edit
-├── ProfileSetupView.swift         # Onboarding flow
-├── AddManualBoopView.swift        # Manual boop entry sheet
-├── BoopManager.swift              # Core boop coordinator
+├── boop_iosApp.swift              # App entry point + deep linking
+├── BoopManager.swift              # Core boop coordinator + persistence + location
+├── LocationManager.swift          # CoreLocation tracking with path buffer
 ├── StorageCoordinator.swift       # Async storage init
+│
+├── Views/                         # All view files
+│   ├── RootView.swift             # Root navigation wrapper
+│   ├── MainTabView.swift          # Main tab container (4 tabs)
+│   ├── BoopTimelineView.swift     # Timeline feed
+│   ├── BoopRangingView.swift      # Proximity-based auto-boop
+│   ├── BoopInteractionListView.swift  # Demo/preview list view
+│   ├── ContactsView.swift         # Contacts list
+│   ├── ContactDetailView.swift    # Contact detail + boop history
+│   ├── ProfileView.swift          # Profile display/edit (uses ModelContext)
+│   ├── ProfileSetupView.swift     # Onboarding flow (with PhotosPicker)
+│   ├── AddManualBoopView.swift    # Manual boop entry sheet
+│   └── LiveActivityManager.swift  # Live Activity management
 │
 ├── Bluetooth/                     # BLE & UWB services
 │   ├── BluetoothManager.swift
@@ -478,46 +525,51 @@ boop-ios/
 │   ├── UWBManager.swift
 │   └── UWBService.swift
 │
-├── DataStore/                     # Data access layer
-│   └── DataStore.swift
-│
-├── model/                         # Data models
-│   ├── Contact.swift              # SwiftData
-│   ├── UserProfile.swift          # SwiftData
-│   ├── BoopInteraction.swift      # SwiftData
+├── Model/                         # Data models
+│   ├── PersistentModel/           # SwiftData @Model classes
+│   │   ├── Contact.swift
+│   │   ├── UserProfile.swift
+│   │   ├── BoopInteraction.swift  # Includes path coordinate storage
+│   │   └── NotificationIntent.swift
 │   ├── Boop.swift                 # Boop + BoopEvent value types
-│   ├── BluetoothMessage.swift     # Protocol
+│   ├── BluetoothMessage.swift     # Binary BLE protocol
 │   ├── NearbyDevice.swift         # UI model
-│   ├── AvatarImage.swift
 │   ├── ConnectionRequest.swift
-│   ├── ConnectionResponse.swift
-│   └── Item.swift                 # Legacy scaffolding
+│   └── ConnectionResponse.swift
+│
+├── DataStore/                     # Data access layer
+│   ├── UserDataStore.swift        # UserDefaults actor (local device UUID)
+│   └── UserDefaults/
+│       ├── UserDefaultsKeys.swift
+│       └── UserDefaultsUtility.swift
+│
+├── Notifications/                 # Local notification infrastructure
+│   ├── NotificationManager.swift
+│   ├── NotificationScheduler.swift
+│   ├── NotificationBuilder.swift
+│   ├── NotificationTrigger.swift
+│   └── NotificationType.swift
 │
 ├── Components/                    # Reusable UI components
-│   ├── BoopInteractionCard.swift
-│   ├── BoopInteractionTimelineBody.swift
+│   ├── BoopInteractionCard.swift  # Card with map support
+│   ├── BoopInteractionTimelineBody.swift  # Timeline body + detail view with map
 │   ├── ContactInteractionCard.swift
-│   ├── ProfileDisplayCard.swift
+│   ├── ProfileDisplayCard.swift   # Profile card with avatar display
 │   └── Gradient/
 │       ├── AnimatedMeshGradient.swift
 │       ├── StyledTextField.swift
 │       ├── DatePickerField.swift
-│       └── ProfilePhotoSelector.swift
+│       └── DisplayColorPickerSheet.swift
 │
 ├── DesignSystem/                  # Design tokens & styles
 │   ├── Colors+DesignSystem.swift
 │   ├── Typography+DesignSystem.swift
 │   ├── Spacing+DesignSystem.swift
-│   ├── Sizes+DesignSystem.swift
+│   ├── Sizes+DesignSystem.swift   # Includes MapSize tokens
 │   ├── Radius+DesignSystem.swift
 │   └── ViewModifiers+DesignSystem.swift
 │
-├── UserDefaults/                  # UserDefaults utilities
-│   ├── UserDefaultsKeys.swift
-│   └── UserDefaultsUtility.swift
-│
 ├── Utilities/
-│   ├── LiveActivityManager.swift
 │   └── StringSanitization.swift
 │
 └── Widgets/                       # Reserved, currently empty
@@ -540,9 +592,7 @@ design-tokens/                     # Figma design token JSON files
 
 ## Future Enhancements
 
-- Location services integration for automatic location tagging
 - Photo sharing during boop interactions
-- Boop notifications and haptic feedback
 - Group boop functionality
 - Privacy controls and blocking
 - Export/backup contact data
