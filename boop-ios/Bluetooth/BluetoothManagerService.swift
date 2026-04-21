@@ -30,6 +30,7 @@ protocol BoopDelegate: AnyObject {
     func didReceiveBoopRequest(from senderUUID: UUID, peripheralUUID: UUID, displayName: String, birthday: Date?, bio: String?, gradientColors: [String])
     func didDeviceConnect(peripheralUUID: UUID)
     func didDeviceDisconnect(peripheralUUID: UUID)
+    func didDisableBle()
 }
 
 // MARK: - Service Protocol
@@ -200,6 +201,9 @@ extension BluetoothManagerServiceImpl: CBPeripheralManagerDelegate, CBCentralMan
         case .poweredOff:
             peripheralReady = false
             print("⚠️ BLE Peripheral state: poweredOff")
+            Task { @MainActor in
+                boopDelegate?.didDisableBle()
+            }
         case .unauthorized:
             peripheralReady = false
             print("❌ BLE Peripheral state: unauthorized")

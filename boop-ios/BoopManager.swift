@@ -249,6 +249,10 @@ class BoopManager: NSObject, ObservableObject {
 
         // Try to find an existing interaction created during this session (from a proximity boop)
         if let existingInteraction = interactionRepo.findLatest(forContactUUID: senderUUID) {
+            guard existingInteraction.endTimestamp == nil else {
+                print("Boop Manager: Attempted to end a session that has already ended")
+                return
+            }
             // Enrich the existing boop with session data
             if existingInteraction.location.isEmpty, let locationManager {
                 Task {
@@ -379,5 +383,12 @@ extension BoopManager: BoopDelegate {
     func didDeviceDisconnect(peripheralUUID: UUID) {
         print("🔌 BoopManager: Device disconnected - \(peripheralUUID.uuidString.prefix(8))")
         handleSessionEnd(peripheralUUID: peripheralUUID)
+    }
+    
+    func didDisableBle() {
+        bluetoothManager?.stop()
+        for (peripheral, starttime) in lastBoopTime {
+            handleSessionEnd(peripheralUUID: peripheral)
+        }
     }
 }
