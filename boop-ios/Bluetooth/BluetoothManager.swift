@@ -106,6 +106,7 @@ class BluetoothManager: NSObject, ObservableObject {
             guard let peripheral = connectedPeripherals[deviceID] else {
                 return
             }
+            uwbManager.stopRanging(to: deviceID)
             await service.disconnect(from: peripheral)
         }
         
