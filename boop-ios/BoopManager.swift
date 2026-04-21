@@ -36,8 +36,8 @@ class BoopManager: NSObject, ObservableObject {
 
     private lazy var displayName: Task<String, Error> = {
         Task {
-            if let profile = await UserDataStore.shared.getUserProfile() {
-                return profile.displayName
+            if let profile = UserProfileRepository.shared.getCurrent() {
+                return profile.name
             }
             return ""
         }
@@ -301,8 +301,7 @@ class BoopManager: NSObject, ObservableObject {
         }
         do {
             // Get user profile data
-            let profile = await UserDataStore.shared.getUserProfile()
-
+            let profile = UserProfileRepository.shared.getCurrent()
             let message = BluetoothMessage(
                 senderUUID: bluetoothManager.getLocalDeviceUUID(),
                 messageType: messageType,
