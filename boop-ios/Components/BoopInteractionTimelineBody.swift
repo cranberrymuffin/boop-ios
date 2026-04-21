@@ -80,12 +80,13 @@ struct BoopInteractionDetailView: View {
     
     private func getInteractionSubtitleText() -> String {
         var interactionSubtitleArr: [String] = []
-        interactionSubtitleArr.append(getFormattedTimestamp(for: interaction.timestamp))
+        let formattedStart = getFormattedTimestamp(for: interaction.timestamp)
+        interactionSubtitleArr.append(formattedStart)
         
         let formattedEnd = interaction.endTimestamp != nil ?
         getFormattedTimestamp(for: interaction.endTimestamp ?? Date()) : nil
         
-        if formattedEnd != nil {
+        if formattedEnd != nil && formattedEnd != formattedStart {
             interactionSubtitleArr.append("-")
             interactionSubtitleArr.append(formattedEnd!)
         }
