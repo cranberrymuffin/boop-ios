@@ -85,7 +85,9 @@ struct boop_iosApp: App {
                 await setModelContainer()
                 locationManager.requestPermissionIfNeeded()
                 if let container = sharedModelContainer {
-                    boopManager.setModelContainer(container)
+                    ContactRepository.shared.setModelContainer(container)
+                    BoopInteractionRepository.shared.setModelContainer(container)
+                    UserProfileRepository.shared.setModelContainer(container)
                 }
                 boopManager.setLocationManager(locationManager)
                 boopManager.start()
