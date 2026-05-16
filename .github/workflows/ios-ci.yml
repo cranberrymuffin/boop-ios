@@ -1,0 +1,138 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-launch:
+    name: Build & Launch Test
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: |
+          XCODE=$(ls /Applications | grep "^Xcode_16" | sort -V | tail -1)
+          sudo xcode-select -s "/Applications/${XCODE}/Contents/Developer"
+          xcodebuild -version
+
+      - name: Select & boot simulator
+        id: sim
+        run: |
+          # Pick newest iPhone simulator available
+          UUID=$(xcrun simctl list devices available \
+            | grep -E "iPhone 1[6-9]|iPhone 2[0-9]" \
+            | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' \
+            | head -1)
+          if [ -z "$UUID" ]; then
+            UUID=$(xcrun simctl list devices available \
+              | grep "iPhone" \
+              | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' \
+              | head -1)
+          fi
+          if [ -z "$UUID" ]; then
+            echo "ERROR: No iPhone simulator found"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "uuid=$UUID" >> $GITHUB_OUTPUT
+          echo "Selected simulator: $UUID"
+
+          # Boot early so it's ready by the time build finishes
+          xcrun simctl boot "$UUID" 2>/dev/null || true
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -scheme boop-ios \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.uuid }}" \
+            -configuration Debug \
+            -derivedDataPath "${{ github.workspace }}/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            PRODUCT_BUNDLE_IDENTIFIER=com.boop.boop-ios.aparna \
+            build 2>&1 | tee build.log
+
+      - name: Verify app & bundle ID
+        id: app
+        run: |
+          APP=$(find "${{ github.workspace }}/DerivedData" \
+            -name "boop-ios.app" -path "*/Debug-iphonesimulator/*" | head -1)
+          if [ -z "$APP" ]; then
+            echo "ERROR: boop-ios.app not found. Apps present:"
+            find "${{ github.workspace }}/DerivedData" -name "*.app" | head -10
+            exit 1
+          fi
+          echo "path=$APP" >> $GITHUB_OUTPUT
+
+          # Confirm the bundle ID baked into the binary
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP/Info.plist")
+          echo "Bundle ID: $BUNDLE_ID"
+          echo "bundle_id=$BUNDLE_ID" >> $GITHUB_OUTPUT
+
+          if [ "$BUNDLE_ID" != "com.boop.boop-ios.aparna" ]; then
+            echo "WARNING: bundle ID mismatch — launch will use '$BUNDLE_ID'"
+          fi
+
+      - name: Wait for simulator & install
+        run: |
+          UDID="${{ steps.sim.outputs.uuid }}"
+          xcrun simctl bootstatus "$UDID" -b
+          # Allow simulator internal services to finish initialising after boot
+          sleep 15
+          xcrun simctl install "$UDID" "${{ steps.app.outputs.path }}"
+
+      - name: Launch app and verify no crash
+        run: |
+          UDID="${{ steps.sim.outputs.uuid }}"
+          BUNDLE_ID="${{ steps.app.outputs.bundle_id }}"
+          touch /tmp/pre_launch
+
+          # Retry up to 3 times — simulator services can still be starting up
+          LAUNCHED=false
+          for attempt in 1 2 3; do
+            echo "Launch attempt $attempt: $BUNDLE_ID"
+            if xcrun simctl launch --terminate-running-process "$UDID" "$BUNDLE_ID"; then
+              LAUNCHED=true
+              break
+            fi
+            echo "Attempt $attempt failed, waiting 10s before retry..."
+            sleep 10
+          done
+
+          if [ "$LAUNCHED" = "false" ]; then
+            echo "App failed to launch after 3 attempts"
+            exit 1
+          fi
+
+          sleep 8
+
+          CRASH_COUNT=$(find ~/Library/Logs/DiagnosticReports \
+            -name "boop-ios*" -newer /tmp/pre_launch 2>/dev/null | wc -l | tr -d ' ')
+
+          if [ "$CRASH_COUNT" -gt "0" ]; then
+            echo "App crashed on launch!"
+            find ~/Library/Logs/DiagnosticReports -name "boop-ios*" -newer /tmp/pre_launch \
+              | head -1 | xargs cat
+            exit 1
+          fi
+
+          echo "App launched successfully — no crash detected"
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-and-crash-logs
+          path: |
+            build.log
+            ~/Library/Logs/DiagnosticReports/boop-ios*.ips
