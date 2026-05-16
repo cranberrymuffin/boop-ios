@@ -69,7 +69,6 @@ struct BoopInteractionDetailView: View {
     @Bindable var interaction: BoopInteraction
     @State private var isEditing = false
     @State private var editEndDate: Date?
-    let interaction: BoopInteraction
     
     private let relativeDateFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
