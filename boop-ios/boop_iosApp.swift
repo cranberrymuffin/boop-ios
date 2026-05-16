@@ -15,9 +15,6 @@ struct boop_iosApp: App {
     @State var sharedModelContainer: ModelContainer?
     @StateObject private var boopManager = BoopManager()
     @StateObject private var locationManager = LocationManager()
-    @State private var selectedTab: Int = 0
-    @State private var selectedInteractionID: UUID?
-
     init() {
         self.schema = Schema([
                 Contact.self,
@@ -43,35 +40,14 @@ struct boop_iosApp: App {
         }
     }
     
-    private func handleURL(_ url: URL) {
-        print("📱 Deep link received: \(url)")
-        
-        // Handle boop://timeline or boop://timeline/{interactionID}
-        if url.scheme == "boop", url.host == "timeline" {
-            selectedTab = 0 // Switch to timeline tab
-            
-            let pathComponents = url.pathComponents.filter { $0 != "/" }
-            if let idString = pathComponents.first, let interactionID = UUID(uuidString: idString) {
-                selectedInteractionID = interactionID
-                print("📱 Navigating to interaction: \(interactionID)")
-            } else {
-                selectedInteractionID = nil
-                print("📱 Navigating to timeline")
-            }
-        }
-    }
-
     var body: some Scene {
         WindowGroup {
             Group {
                 if let container = sharedModelContainer {
-                    RootView(selectedTab: $selectedTab, selectedInteractionID: $selectedInteractionID)
+                    RootView()
                         .modelContainer(container)
                         .environmentObject(boopManager)
                         .environmentObject(locationManager)
-                        .onOpenURL { url in
-                            handleURL(url)
-                        }
                 } else {
                     VStack
                     {

@@ -21,7 +21,6 @@ struct ContactsView: View {
                             buildContactCard(contact: contact)
                         }
                     }
-                    .onDelete(perform: deleteContact)
                 }
                 .scrollContentBackground(Visibility.hidden)
             }
@@ -44,10 +43,7 @@ struct ContactsView: View {
             .navigationDestination(for: Contact.self) { contact in
                 ContactDetailView(contact: contact)
             }
-            .navigationDestination(for: BoopHistoryRoute.self) { route in
-                BoopHistoryView(contact: route.contact)
-            }
-            .navigationDestination(for: BoopInteraction.self) { interaction in
+.navigationDestination(for: BoopInteraction.self) { interaction in
                 BoopInteractionDetailView(interaction: interaction)
             }
             .sheet(isPresented: $showBoopRanging) {
@@ -57,13 +53,6 @@ struct ContactsView: View {
         }
     }
 
-    private func deleteContact(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                ContactRepository.shared.delete(contacts[index])
-            }
-        }
-    }
 }
 
 @ViewBuilder

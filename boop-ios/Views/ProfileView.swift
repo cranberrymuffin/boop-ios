@@ -10,11 +10,12 @@ struct ProfileView: View {
         case displayProfile
     }
 
+    @Query private var allInteractions: [BoopInteraction]
     @State private var userProfile: UserProfile? = nil
     @State private var profileState = ProfileState.loadingProfile
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Group {
                 switch profileState {
                 case .loadingProfile:
@@ -24,25 +25,33 @@ struct ProfileView: View {
                 case .noProfile:
                     editModeView
                 case .displayProfile:
-                    displayModeView
+                    if let profile = userProfile {
+                        PersonDetailView(
+                            displayName: profile.name,
+                            birthday: profile.birthday,
+                            bio: profile.bio,
+                            avatarData: profile.avatarData,
+                            gradientColors: profile.gradientColors,
+                            boopCount: allInteractions.count,
+                            isOwnProfile: true,
+                            onEdit: { profileState = .editingProfile }
+                        ) {
+                            AllBoopsHistoryView()
+                        }
+                    } else {
+                        noProfileFoundView
+                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if profileState != ProfileState.editingProfile &&
-                    profileState != ProfileState.loadingProfile {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("Edit") {
-                            profileState = ProfileState.editingProfile
-                        }
-                    }
-                }
+            .navigationDestination(for: BoopInteraction.self) { interaction in
+                BoopInteractionDetailView(interaction: interaction)
             }
             .onAppear(perform: loadProfile)
         }
         .pageBackground()
     }
-    
+
     private var loadingView: some View {
         VStack {
             ProgressView()
@@ -50,43 +59,7 @@ struct ProfileView: View {
                 .subtitleStyle()
         }
     }
-    
-    private var displayModeView: some View {
-        NavigationView {
-            if userProfile != nil {
-                readOnlyProfileView
-            } else {
-                noProfileFoundView
-            }
-        }
-    }
-    
-    private var readOnlyProfileView: some View {
-        ZStack {
-            AnimatedMeshGradient(
-                colors: userProfile!.gradientColors,
-                animationStyle: .horizontalWave,
-                duration: 3.0
-            )
-            .ignoresSafeArea()
-            
-            Form {
-                Section {
-                    ProfileDisplayCard(
-                        displayName: userProfile!.name,
-                        birthday: userProfile!.birthday,
-                        bio: userProfile!.bio,
-                        avatarData: userProfile!.avatarData
-                    )
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-            }
-            .scrollContentBackground(.hidden)
-        }
-    
-    }
-    
+
     private var noProfileFoundView: some View {
         ZStack {
             Spacer()
@@ -94,7 +67,6 @@ struct ProfileView: View {
             Spacer()
         }
     }
-    
 
     private var editModeView: some View {
         ProfileSetupView(
@@ -112,7 +84,7 @@ struct ProfileView: View {
             }
         )
     }
-    
+
     private func saveProfile(profile: UserProfile) {
         UserProfileRepository.shared.save(profile)
         profileState = .displayProfile
@@ -122,6 +94,15 @@ struct ProfileView: View {
         profileState = .loadingProfile
         userProfile = UserProfileRepository.shared.getCurrent()
         profileState = userProfile != nil ? .displayProfile : .noProfile
+    }
+}
+
+struct AllBoopsHistoryView: View {
+    @Query(sort: \BoopInteraction.timestamp, order: .reverse)
+    private var allInteractions: [BoopInteraction]
+
+    var body: some View {
+        BoopHistoryView(interactions: allInteractions, title: "Boop History")
     }
 }
 
