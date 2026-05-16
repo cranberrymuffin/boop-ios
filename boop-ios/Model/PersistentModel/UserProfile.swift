@@ -9,13 +9,15 @@ final class UserProfile {
     var birthday: Date?
     var bio: String?
     var gradientColorsData: [String] = []
-    
-    init(name: String, birthday: Date? = nil, bio: String? = nil, gradientColors: [Color] = []) {
+    var avatarData: Data?
+
+    init(name: String, birthday: Date? = nil, bio: String? = nil, gradientColors: [Color] = [], avatarData: Data? = nil) {
         self.name = name
         self.birthday = birthday
         self.bio = bio
         self.createdAt = Date()
         self.gradientColorsData = gradientColors.map { Self.colorToString($0) }
+        self.avatarData = avatarData
     }
     
     var gradientColors: [Color] {

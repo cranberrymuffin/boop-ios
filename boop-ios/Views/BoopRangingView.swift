@@ -2,24 +2,20 @@
 //  BoopRangingView.swift
 //  boop-ios
 //
-//  Handles Bluetooth ranging/scanning for new boops
+//  Handles Bluetooth ranging/scanning UI overlay for boops.
+//  All persistence is handled by BoopManager.
 //
 
 import SwiftUI
-import SwiftData
 
 struct BoopRangingView: View {
     var isPresented: Binding<Bool>?
     @EnvironmentObject var boopManager: BoopManager
-    @Environment(\.modelContext) private var modelContext
-    @Query private var contacts: [Contact]
-    @Query(sort: \BoopInteraction.timestamp, order: .reverse)
-    private var allInteractions: [BoopInteraction]
+
     @State private var showBoop = false
     @State private var currentBoopDisplayName: String = ""
 
     private let animationDuration: TimeInterval = 2
-    private let duplicateWindow: TimeInterval = 3
 
     var body: some View {
         NavigationStack {
@@ -32,6 +28,10 @@ struct BoopRangingView: View {
                 Text("Tap to boop")
                     .subtitleStyle()
                 Spacer()
+
+                #if DEBUG
+                debugControls
+                #endif
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .pageBackground()
@@ -70,88 +70,53 @@ struct BoopRangingView: View {
             }
             .animation(.easeInOut(duration: animationDuration), value: showBoop)
             .onChange(of: boopManager.latestBoopEvent) { _, newValue in
-                // Only handle if event is new
                 guard let event = newValue, !showBoop else { return }
-                handleNewBoop(event: event)
+                showBoopOverlay(displayName: event.boop.displayName)
             }
         }
-        .onAppear { boopManager.start() }
-        .onDisappear { boopManager.stop() }
     }
 
-    private func handleNewBoop(event: BoopEvent) {
-        let boop = event.boop
-
-        // Store display name for modal
-        currentBoopDisplayName = boop.displayName
-
-        // Use senderUUID from boop
-        let contactUUID = boop.senderUUID
-
-        // Find or create contact
-        let contact: Contact
-        if let existingContact = contacts.first(where: { $0.uuid == contactUUID }) {
-            contact = existingContact
-            // Update contact with latest profile data
-            contact.displayName = boop.displayName
-            contact.birthday = boop.birthday
-            contact.bio = boop.bio
-            contact.gradientColorsData = boop.gradientColors.map { Contact.colorToString($0) }
-        } else {
-            // Create new contact with profile data
-            contact = Contact(
-                uuid: contactUUID,
-                displayName: boop.displayName,
-                birthday: boop.birthday,
-                bio: boop.bio,
-                gradientColors: boop.gradientColors
-            )
-            modelContext.insert(contact)
-        }
-
-        guard !isDuplicateInteraction(for: contactUUID, displayName: boop.displayName, timestamp: event.timestamp) else {
-            print("⏭️ BoopRangingView: Skipping duplicate interaction for \(contactUUID.uuidString.prefix(8))")
-            showBoop = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration) {
-                showBoop = false
-                isPresented?.wrappedValue = false
-            }
-            return
-        }
-
-        // Create interaction with contact relationship
-        let newInteraction = BoopInteraction(
-            title: boop.displayName,
-            location: "temp - todo",
-            timestamp: event.timestamp,
-            contact: contact  // Set relationship
-        )
-        modelContext.insert(newInteraction)  // Insert as top-level entity
-        contact.interactions.append(newInteraction)  // Also add to contact's array
-
-        LiveActivityManager.shared.startBoopLiveActivity(
-            contactName: boop.displayName,
-            contactID: contactUUID,
-            interactionID: newInteraction.id
-        )
-
-        // Show modal
+    private func showBoopOverlay(displayName: String) {
+        currentBoopDisplayName = displayName
         showBoop = true
 
-        // Hide modal after animation duration (dismiss sheet if presented as one)
         DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration) {
             showBoop = false
             isPresented?.wrappedValue = false
         }
     }
 
-    private func isDuplicateInteraction(for contactUUID: UUID, displayName: String, timestamp: Date) -> Bool {
-        allInteractions.contains { interaction in
-            guard interaction.contact?.uuid == contactUUID else { return false }
-            guard interaction.title == displayName else { return false }
-            return abs(interaction.timestamp.timeIntervalSince(timestamp)) <= duplicateWindow
+    // MARK: - Debug Controls
+
+    #if DEBUG
+    private var debugControls: some View {
+        VStack(spacing: Spacing.sm) {
+            Text("Debug")
+                .font(.caption)
+                .foregroundColor(.textMuted)
+
+            if boopManager.simulatedPeripheralUUID != nil {
+                Button("Disconnect Simulated Device") {
+                    boopManager.simulateDisconnect()
+                }
+                .primaryButtonStyle()
+            } else {
+                Button("Simulate 5 min Session") {
+                    boopManager.simulateDeviceConnect(
+                        displayName: "Simulated Friend",
+                        autoDisconnectAfter: 5 * 60
+                    )
+                }
+                .primaryButtonStyle()
+
+                Button("Simulate Connect (manual disconnect)") {
+                    boopManager.simulateDeviceConnect(displayName: "Simulated Friend")
+                }
+                .primaryButtonStyle()
+            }
         }
+        .padding(.horizontal, Spacing.lg)
+        .padding(.bottom, Spacing.lg)
     }
+    #endif
 }
-
-

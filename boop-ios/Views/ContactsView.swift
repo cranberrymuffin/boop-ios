@@ -9,7 +9,6 @@ import SwiftUI
 import SwiftData
 
 struct ContactsView: View {
-    @Environment(\.modelContext) private var modelContext
     @Query private var contacts: [Contact]
     @State private var showBoopRanging = false
 
@@ -61,7 +60,7 @@ struct ContactsView: View {
     private func deleteContact(offsets: IndexSet) {
         withAnimation {
             for index in offsets {
-                modelContext.delete(contacts[index])
+                ContactRepository.shared.delete(contacts[index])
             }
         }
     }

@@ -90,6 +90,18 @@ enum LayoutConstant {
     static let cardContentGap: CGFloat = 5
 }
 
+// MARK: - Map Sizes
+enum MapSize {
+    /// Height of the map preview shown in interaction cards: 160pt
+    static let cardMapHeight: CGFloat = 160
+    
+    /// Radius of the pins in the map preview show in interaction cards: 10pt
+    static let pinRadius: CGFloat = 10
+    
+    /// Width of the border of pins in the map preview show in interaction cards: 2pt
+    static let pinBorderWidth: CGFloat = 2
+}
+
 // MARK: - Animation Durations
 enum AnimationDuration {
     /// Quick animations (micro-interactions): 0.2s

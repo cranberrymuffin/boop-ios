@@ -1,129 +1,127 @@
 import SwiftUI
+import SwiftData
 
 struct ProfileView: View {
-    @Environment(\.modelContext) private var modelContext
 
-    @State private var name = ""
-    @State private var birthday: Date?
-    @State private var bio = ""
-    @State private var isLoading = false
-    @State private var isEditing = false
+    enum ProfileState {
+        case loadingProfile
+        case editingProfile
+        case noProfile
+        case displayProfile
+    }
 
-    @State private var gradientColors: [Color] = []
+    @State private var userProfile: UserProfile? = nil
+    @State private var profileState = ProfileState.loadingProfile
 
     var body: some View {
         NavigationView {
             Group {
-                if isLoading {
-                    VStack {
-                        ProgressView()
-                        Text("Loading profile...")
-                            .subtitleStyle()
-                    }
-                } else {
-                    if isEditing {
-                        editModeView
-                    } else {
-                        displayModeView
-                    }
+                switch profileState {
+                case .loadingProfile:
+                    loadingView
+                case .editingProfile:
+                    editModeView
+                case .noProfile:
+                    editModeView
+                case .displayProfile:
+                    displayModeView
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if !isEditing && !isLoading {
+                if profileState != ProfileState.editingProfile &&
+                    profileState != ProfileState.loadingProfile {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button("Edit") {
-                            isEditing = true
+                            profileState = ProfileState.editingProfile
                         }
                     }
                 }
             }
-            .task {
-                await loadProfile()
-            }
+            .onAppear(perform: loadProfile)
         }
         .pageBackground()
     }
     
+    private var loadingView: some View {
+        VStack {
+            ProgressView()
+            Text("Loading profile...")
+                .subtitleStyle()
+        }
+    }
+    
     private var displayModeView: some View {
         NavigationView {
-            ZStack {
-                AnimatedMeshGradient(
-                    colors: gradientColors,
-                    animationStyle: .horizontalWave,
-                    duration: 3.0
-                )
-                .ignoresSafeArea()
-                
-                Form {
-                    Section {
-                        ProfileDisplayCard(
-                            displayName: name,
-                            birthday: birthday,
-                            bio: bio.isEmpty ? nil : bio
-                        )
-                    }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-                }
-                .scrollContentBackground(.hidden)
+            if userProfile != nil {
+                readOnlyProfileView
+            } else {
+                noProfileFoundView
             }
         }
     }
     
+    private var readOnlyProfileView: some View {
+        ZStack {
+            AnimatedMeshGradient(
+                colors: userProfile!.gradientColors,
+                animationStyle: .horizontalWave,
+                duration: 3.0
+            )
+            .ignoresSafeArea()
+            
+            Form {
+                Section {
+                    ProfileDisplayCard(
+                        displayName: userProfile!.name,
+                        birthday: userProfile!.birthday,
+                        bio: userProfile!.bio,
+                        avatarData: userProfile!.avatarData
+                    )
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+            }
+            .scrollContentBackground(.hidden)
+        }
+    
+    }
+    
+    private var noProfileFoundView: some View {
+        ZStack {
+            Spacer()
+            Text("No Profile Found")
+            Spacer()
+        }
+    }
+    
+
     private var editModeView: some View {
         ProfileSetupView(
-            initialName: name,
-            initialBirthday: birthday,
-            initialBio: bio,
+            initialName: userProfile?.name ?? "",
+            initialBirthday: userProfile?.birthday,
+            initialBio: userProfile?.bio ?? "",
             buttonText: "Save",
             requireAllFields: false,
             isEditMode: true,
-            gradientColors: gradientColors,
+            gradientColors: userProfile?.gradientColors,
+            initialAvatarData: userProfile?.avatarData,
             onSave: { profile in
                 saveProfile(profile: profile)
+                loadProfile()
             }
         )
     }
     
     private func saveProfile(profile: UserProfile) {
-        isLoading = true
-
-        Task {
-            await DataStore.shared.setUserProfile(profile)
-            modelContext.insert(profile)
-
-            await MainActor.run {
-                // Update local state
-                self.name = profile.name
-                self.birthday = profile.birthday
-                self.bio = profile.bio ?? ""
-                self.gradientColors = profile.gradientColors
-                
-                self.isLoading = false
-                self.isEditing = false
-            }
-        }
+        UserProfileRepository.shared.save(profile)
+        profileState = .displayProfile
     }
 
-    private func loadProfile() async {
-        await MainActor.run { isLoading = true }
-
-        if let profileData = await DataStore.shared.getUserProfile() {
-            print("✅ [Profile] Local profile loaded")
-
-            await MainActor.run {
-                self.name = profileData.name
-                self.birthday = profileData.birthday
-                self.bio = profileData.bio ?? ""
-                self.gradientColors = profileData.gradientColors
-                self.isLoading = false
-                print("✅ [Profile] Profile state updated")
-            }
-        } else {
-            print("⚠️ [Profile] No local profile found")
-            await MainActor.run { isLoading = false }
-        }
+    private func loadProfile() {
+        profileState = .loadingProfile
+        userProfile = UserProfileRepository.shared.getCurrent()
+        profileState = userProfile != nil ? .displayProfile : .noProfile
     }
 }
 

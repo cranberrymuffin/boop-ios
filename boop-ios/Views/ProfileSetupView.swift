@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct ProfileSetupView: View {
     @Environment(\.modelContext) private var modelContext
@@ -10,12 +11,14 @@ struct ProfileSetupView: View {
     @State private var isLoading = false
     @State private var gradientColors: [Color] = []
     @State private var showColorPicker = false
+    @State private var selectedPhotoItem: PhotosPickerItem? = nil
+    @State private var avatarData: Data?
 
     let buttonText: String
     let requireAllFields: Bool
     let isEditMode: Bool
     let onSave: (UserProfile) -> Void
-    
+
     init(
         initialName: String = "",
         initialBirthday: Date? = nil,
@@ -24,13 +27,14 @@ struct ProfileSetupView: View {
         requireAllFields: Bool = true,
         isEditMode: Bool = false,
         gradientColors: [Color]? = nil,
+        initialAvatarData: Data? = nil,
         onSave: @escaping (UserProfile) -> Void
     ) {
-        _name = State(initialValue: initialName)
-        _birthday = State(initialValue: initialBirthday)
-        _bio = State(initialValue: initialBio)
-        let colors = gradientColors ?? ProfileSetupView.generateRandomGradient()
-        _gradientColors = State(initialValue: colors)
+        self.name = initialName
+        self.birthday = initialBirthday
+        self.bio = initialBio
+        self.gradientColors = gradientColors ?? ProfileSetupView.generateRandomGradient()
+        self.avatarData = initialAvatarData
         self.buttonText = buttonText
         self.requireAllFields = requireAllFields
         self.isEditMode = isEditMode
@@ -44,7 +48,7 @@ struct ProfileSetupView: View {
             return !name.isEmptyAfterSanitizing
         }
     }
-    
+
     private static func generateRandomGradient() -> [Color] {
         let colors: [Color] = [
             .red, .orange, .yellow, .green, .cyan, .blue, .indigo, .purple, .pink,
@@ -57,6 +61,7 @@ struct ProfileSetupView: View {
     }
 
     var body: some View {
+        
         NavigationView {
             ZStack {
                 AnimatedMeshGradient(
@@ -65,20 +70,48 @@ struct ProfileSetupView: View {
                     duration: 3.0
                 )
                 .ignoresSafeArea()
-                
                 VStack(spacing: 0) {
+                    // Avatar picker
+                    PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                        ZStack(alignment: .bottomTrailing) {
+                            if avatarData != nil
+                            {
+                                let uiImage = UIImage(data: avatarData!)
+                                Image(uiImage: uiImage!)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 88, height: 88)
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(Color.white.opacity(0.4), lineWidth: 2))
+                            } else {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 88, height: 88)
+                                    .foregroundColor(.white.opacity(0.6))
+                            }
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundColor(.accentPrimary)
+                                .background(Color.white, in: Circle())
+                                .font(.system(size: 22))
+                        }
+                    }
+                    .padding(.top, Spacing.lg)
+                    .padding(.bottom, Spacing.sm)
+
                     Form {
                         Section {
-                            StyledTextField(placeholder: "Name", text: $name)
+                            StyledTextField(placeholder:
+                                                name != "" ? name : "Name", text: $name)
                                 .listRowSeparator(.hidden)
                             DatePickerField(
                                 title: "Set birthday",
-                                placeholder: "Add birthday",
+                                placeholder: birthday != nil ? birthday!.formatted() : "Add Birthday",
                                 info: "Your birth year is kept private",
                                 selectedDate: $birthday
                             )
                                 .listRowSeparator(.hidden)
-                            StyledTextField(placeholder: "Bio", text: $bio)
+                            StyledTextField(placeholder: bio != "" ? bio : "Bio", text: $bio)
                                 .listRowSeparator(.hidden)
                         }
                     }
@@ -109,7 +142,7 @@ struct ProfileSetupView: View {
                     .padding(.horizontal)
                     .padding(.bottom)
                 }
-            
+
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showColorPicker) {
                 DisplayColorPickerSheet(gradientColors: $gradientColors)
@@ -126,25 +159,33 @@ struct ProfileSetupView: View {
                 }
                 .disabled(!canSubmit || isLoading)
             }
+            .onChange(of: selectedPhotoItem) { _, newItem in
+                Task {
+                    if let newItem,
+                       let data = try? await newItem.loadTransferable(type: Data.self) {
+                        await MainActor.run { avatarData = data }
+                    }
+                }
+            }
         }
     }
 }
 
     private func saveProfile() {
         isLoading = true
-        
+
         let profile = UserProfile(
             name: name.sanitize(),
             birthday: birthday,
             bio: bio.isEmpty ? nil : bio.sanitize(),
-            gradientColors: gradientColors
+            gradientColors: gradientColors,
+            avatarData: avatarData
         )
-        
+
         onSave(profile)
-        
+
         isLoading = false
     }
-    
 
 }
 

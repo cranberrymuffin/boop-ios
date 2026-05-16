@@ -10,7 +10,20 @@
       "WebFetch(domain:gist.github.com)",
       "Bash(grep:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git stash:*)",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)",
+      "Bash(GIT_SEQUENCE_EDITOR=\"sed -i '''' ''s/^pick 386ea61/edit 386ea61/''\" git rebase -i 386ea61~1)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr close:*)",
+      "Bash(git cherry-pick:*)",
+      "mcp__figma__get_metadata",
+      "mcp__figma__get_screenshot",
+      "mcp__figma__get_design_context",
+      "mcp__figma__get_variable_defs",
+      "Bash(xcrun simctl:*)",
+      "mcp__notion__notion-search"
     ]
   }
 }

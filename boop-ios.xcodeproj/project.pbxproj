@@ -485,10 +485,11 @@
 				DEVELOPMENT_TEAM = Z9WN384MPT;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleURLTypes = "<array><dict><key>CFBundleTypeRole</key><string>Editor</string><key>CFBundleURLName</key><string>com.boop.boop-ios</string><key>CFBundleURLSchemes</key><array><string>boop</string></array></dict></array>";
+				INFOPLIST_KEY_CFBundleURLTypes = "<array><dict><key>CFBundleTypeRole</key><string>Editor</string><key>CFBundleURLName</key><string>com.aparna.boop.boop-ios</string><key>CFBundleURLSchemes</key><array><string>boop</string></array></dict></array>";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This app uses Bluetooth to find and connect with nearby devices.";
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "This app needs Bluetooth access to advertise its presence to nearby devices.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "This app uses location to add location tags to interactions with the user and their friends on the app";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Boop uses your location to record the path you travel while hanging out with friends.";
 				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "This app uses Ultra Wideband to accurately detect when devices are close together for the boop feature.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -501,7 +502,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.boop.boop-ios.aparna";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aparna.boop.boop-ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -526,6 +527,7 @@
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This app uses Bluetooth to find and connect with nearby devices.";
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "This app needs Bluetooth access to advertise its presence to nearby devices.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "This app uses location to add location tags to interactions with the user and their friends on the app";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Boop uses your location to record the path you travel while hanging out with friends.";
 				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "This app uses Ultra Wideband to accurately detect when devices are close together for the boop feature.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -538,7 +540,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.boop.boop-ios.aparna";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aparna.boop.boop-ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -567,7 +569,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.boop.boop-ios.aparna.BoopLiveActivity";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aparna.boop.boop-ios.BoopLiveActivity";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -587,7 +589,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = P3PR8G7GB9;
+				DEVELOPMENT_TEAM = Z9WN384MPT;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BoopLiveActivity/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BoopLiveActivity;
@@ -599,7 +601,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.boop.boop-ios.BoopLiveActivity";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aparna.boop.boop-ios.BoopLiveActivity";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

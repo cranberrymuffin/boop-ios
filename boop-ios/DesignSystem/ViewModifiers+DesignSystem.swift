@@ -44,6 +44,17 @@ struct Heading2Style: ViewModifier {
     }
 }
 
+/// Heading 3 style: SF Pro Semibold 20pt with secondary text color
+/// Used for card detail subtitle
+struct Heading3Style: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.heading3)
+            .foregroundColor(.textMuted)
+            .lineSpacing(for: .heading3)
+    }
+}
+
 /// Subtitle style: SF Pro Regular 14pt with muted text color
 /// Used for captions, metadata, and secondary information
 struct SubtitleStyle: ViewModifier {
@@ -151,6 +162,10 @@ extension View {
 
     func heading2Style() -> some View {
         modifier(Heading2Style())
+    }
+    
+    func heading3Style() -> some View {
+        modifier(Heading3Style())
     }
 
     func subtitleStyle() -> some View {

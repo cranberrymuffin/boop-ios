@@ -3,8 +3,8 @@ import SwiftUI
 
 /// Unified data store providing a single interface for accessing user data
 /// Internally uses UserDefaults for persistence with optional in-memory caching
-actor DataStore {
-    static let shared = DataStore()
+actor UserDataStore {
+    static let shared = UserDataStore()
 
     // In-memory cache for frequently accessed values
     private var cache: [String: Any] = [:]
@@ -70,6 +70,11 @@ actor DataStore {
         return UserDefaults.standard.string(forKey: UserDefaultsKeys.bio)
     }
     
+    /// Returns the user's avatar image data if available
+    func getAvatarData() async -> Data? {
+        return nil
+    }
+
     /// Returns the user's gradient colors if available
     func getGradientColors() async -> [String]? {
         if let cached = cache[UserDefaultsKeys.gradientColors] as? [String] {
@@ -101,11 +106,13 @@ actor DataStore {
         let birthday = await getBirthday()
         let bio = await getBio()
         let gradientColors = await getGradientColors() ?? []
+        let avatarData = await getAvatarData()
         let userProfileData = UserProfileData(
             name: name,
             birthday: birthday,
             bio: bio,
-            gradientColorsData: gradientColors
+            gradientColorsData: gradientColors,
+            avatarData: avatarData
         )
         print("Constructed user profile data. Display Name: \(userProfileData.displayName)")
         return userProfileData
@@ -170,6 +177,15 @@ struct UserProfileData {
     let birthday: Date?
     let bio: String?
     let gradientColorsData: [String]
+    let avatarData: Data?
+
+    init(name: String, birthday: Date?, bio: String?, gradientColorsData: [String], avatarData: Data? = nil) {
+        self.name = name
+        self.birthday = birthday
+        self.bio = bio
+        self.gradientColorsData = gradientColorsData
+        self.avatarData = avatarData
+    }
 
     var displayName: String {
         "\(name)"

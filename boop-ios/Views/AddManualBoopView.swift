@@ -9,8 +9,8 @@ import SwiftUI
 import SwiftData
 
 struct AddManualBoopView: View {
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var locationManager: LocationManager
     @Query private var contacts: [Contact]
 
     @State private var selectedContact: Contact?
@@ -182,19 +182,20 @@ struct AddManualBoopView: View {
         } else {
             let trimmedName = searchText.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
             guard !trimmedName.isEmpty else { return }
-            contact = Contact(uuid: UUID(), displayName: trimmedName)
-            modelContext.insert(contact)
+            guard let created = ContactRepository.shared.findOrCreate(
+                uuid: UUID(), displayName: trimmedName, birthday: nil, bio: nil, gradientColors: []
+            ) else { return }
+            contact = created
         }
 
-        let interaction = BoopInteraction(
+        _ = BoopInteractionRepository.shared.create(
             title: contact.displayName,
-            location: "",
+            location: locationManager.currentLocationName,
             timestamp: startDate ?? Date(),
             endTimestamp: endDate,
-            contact: contact
+            contact: contact,
+            pathCoordinates: locationManager.snapshotPath()
         )
-        modelContext.insert(interaction)
-        contact.interactions.append(interaction)
 
         dismiss()
     }

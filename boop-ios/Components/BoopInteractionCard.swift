@@ -2,10 +2,12 @@
 //  BoopInteractionCard.swift
 //  boop-ios
 //
-//  SwiftUI component for displaying Boop interactions
-//  Converted from Figma design with design tokens
+//  SwiftUI component for displaying Boop interactions.
+//  When path coordinates are available, a map showing the traveled path is
+//  rendered above the card content row (similar to PathRecorder's card style).
 //
 
+import MapKit
 import SwiftUI
 
 struct BoopInteractionCard: View {
@@ -14,42 +16,48 @@ struct BoopInteractionCard: View {
 
     var body: some View {
         Button(action: { onTap?() }) {
-            HStack(spacing: Spacing.md) {
-                // Thumbnail(s)
-                thumbnailView
-                    .frame(width: thumbnailWidth, height: ThumbnailSize.single)
+            VStack(spacing: 0) {
+            
+                // Content row
+                HStack(spacing: Spacing.md) {
+                    // Thumbnail(s)
+                    thumbnailView
+                        .frame(width: thumbnailWidth, height: ThumbnailSize.single)
 
-                // Content
-                VStack(alignment: .leading, spacing: LayoutConstant.cardContentGap) {
-                    // Title
-                    Text(interaction.title)
-                        .font(.heading2)
-                        .foregroundColor(.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    // Content
+                    VStack(alignment: .leading, spacing: LayoutConstant.cardContentGap) {
+                        // Title
+                        Text(interaction.title)
+                            .font(.heading2)
+                            .foregroundColor(.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
 
-                    // Subtitle: location • date • time
-                    // TimelineView updates automatically as time passes
-                    TimelineView(.periodic(from: .now, by: 60)) { context in
-                        HStack(spacing: 0) {
-                            subtitleText(interaction.location)
-                            bullet
-                            subtitleText(relativeTimeString(for: interaction.timestamp))
+                        // Subtitle: location • date • time
+                        // TimelineView updates automatically as time passes
+                        TimelineView(.periodic(from: .now, by: 60)) { _ in
+                            HStack(spacing: 0) {
+                                if !interaction.location.isEmpty {
+                                    subtitleText(interaction.location)
+                                    bullet
+                                }
+                                subtitleText(relativeTimeString(for: interaction.timestamp))
+                            }
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Spacer()
+
+                    // Chevron
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: IconSize.standard, weight: .semibold))
+                        .foregroundColor(.accentPrimary)
+                        .frame(width: IconSize.xsmall)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Spacer()
-
-                // Chevron
-                Image(systemName: "chevron.right")
-                    .font(.system(size: IconSize.standard, weight: .semibold))
-                    .foregroundColor(.accentPrimary)
-                    .frame(width: IconSize.xsmall)
+                .padding(.horizontal, Spacing.lg)
+                .frame(height: ComponentSize.cardHeight)
             }
-            .padding(.horizontal, Spacing.lg)
-            .frame(height: ComponentSize.cardHeight)
         }
         .buttonStyle(PlainButtonStyle())
         .cardStyle()
@@ -180,14 +188,13 @@ struct BoopInteractionCard: View {
 
 // MARK: - Preview
 
-
-#Preview("Single Thumbnail") {
+#Preview("No Map (legacy)") {
     VStack(spacing: Spacing.lg) {
         BoopInteractionCard(
             interaction: BoopInteraction(
                 title: "Hang with Aparna",
                 location: "Stuytown, NYC",
-                timestamp: Date().addingTimeInterval(-86400), // 1 day ago
+                timestamp: Date().addingTimeInterval(-86400),
                 imageData: [Data()]
             )
         )
@@ -196,32 +203,44 @@ struct BoopInteractionCard: View {
     .background(Color.backgroundPrimary)
 }
 
-
-#Preview("Double Thumbnail") {
+#Preview("Single Pin Map") {
     VStack(spacing: Spacing.lg) {
         BoopInteractionCard(
-            interaction: BoopInteraction(
-                title: "Anish, Sarem...",
-                location: "John St, NYC",
-                timestamp: Date().addingTimeInterval(-604800), // 1 week ago
-                imageData: [Data(), Data()]
-            )
+            interaction: {
+                let i = BoopInteraction(
+                    title: "Bumped into Sarem",
+                    location: "John St, NYC",
+                    timestamp: Date().addingTimeInterval(-3600),
+                    imageData: [],
+                    pathCoordinates: [CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)]
+                )
+                return i
+            }()
         )
     }
     .padding()
     .background(Color.backgroundPrimary)
 }
 
-
-#Preview("Triple Thumbnail") {
+#Preview("Path Map") {
     VStack(spacing: Spacing.lg) {
         BoopInteractionCard(
-            interaction: BoopInteraction(
-                title: "Anu, Jesse, Sarem",
-                location: "Joyface, NYC",
-                timestamp: Date().addingTimeInterval(-31536000), // 1 year ago
-                imageData: [Data(), Data(), Data()]
-            )
+            interaction: {
+                let coords: [CLLocationCoordinate2D] = [
+                    CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060),
+                    CLLocationCoordinate2D(latitude: 40.7135, longitude: -74.0055),
+                    CLLocationCoordinate2D(latitude: 40.7140, longitude: -74.0045),
+                    CLLocationCoordinate2D(latitude: 40.7145, longitude: -74.0035),
+                ]
+                let i = BoopInteraction(
+                    title: "Anu, Jesse, Sarem",
+                    location: "Joyface, NYC",
+                    timestamp: Date().addingTimeInterval(-31536000),
+                    imageData: [Data(), Data()],
+                    pathCoordinates: coords
+                )
+                return i
+            }()
         )
     }
     .padding()
