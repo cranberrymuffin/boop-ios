@@ -1,23 +1,21 @@
 import SwiftUI
 
-/// Root tab view for authenticated users
 struct MainTabView: View {
-    var body: some View {
-        TabView {
-            BoopRangingView()
-                .tabItem {
-                    Label("Boop", systemImage: "hand.tap.fill")
-                }
+    @State private var selectedTab = 0
 
-            ContactsView()
-                .tabItem {
-                    Label("Contacts", systemImage: "person.2")
-                }
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            BoopRangingView()
+                .tabItem { Label("Boop", systemImage: "hand.tap.fill") }
+                .tag(0)
+
+            ContactsView(onSwitchToBoop: { selectedTab = 0 })
+                .tabItem { Label("Contacts", systemImage: "person.2") }
+                .tag(1)
 
             ProfileView()
-                .tabItem {
-                    Label("You", systemImage: "person.crop.circle")
-                }
+                .tabItem { Label("You", systemImage: "person.crop.circle") }
+                .tag(2)
         }
     }
 }

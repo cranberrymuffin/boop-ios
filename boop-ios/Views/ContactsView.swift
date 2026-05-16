@@ -3,7 +3,7 @@ import SwiftData
 
 struct ContactsView: View {
     @Query private var contacts: [Contact]
-    @State private var showBoopRanging = false
+    let onSwitchToBoop: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -23,7 +23,7 @@ struct ContactsView: View {
                         .heading1Style()
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showBoopRanging = true }) {
+                    Button(action: onSwitchToBoop) {
                         Image(systemName: "plus")
                             .font(.system(size: IconSize.standard, weight: .semibold))
                             .foregroundColor(.accentPrimary)
@@ -42,9 +42,6 @@ struct ContactsView: View {
             .navigationDestination(for: BoopInteraction.self) { interaction in
                 BoopInteractionDetailView(interaction: interaction)
             }
-            .sheet(isPresented: $showBoopRanging) {
-                BoopRangingView(isPresented: $showBoopRanging)
-            }
         }
     }
 }
@@ -55,6 +52,6 @@ func buildContactCard(contact: Contact) -> some View {
 }
 
 #Preview {
-    ContactsView()
+    ContactsView(onSwitchToBoop: {})
         .modelContainer(for: Contact.self, inMemory: true)
 }
