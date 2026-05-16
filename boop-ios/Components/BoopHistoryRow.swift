@@ -1,12 +1,12 @@
 import SwiftUI
 
-struct BoopHistoryRow<Destination: View>: View {
+struct BoopHistoryRow<Route: Hashable>: View {
     let count: Int
-    @ViewBuilder let destination: () -> Destination
+    let route: Route
 
     var body: some View {
         Section {
-            NavigationLink(destination: destination()) {
+            NavigationLink(value: route) {
                 HStack {
                     Image(systemName: "clock.arrow.circlepath")
                         .foregroundColor(.staticWhite)

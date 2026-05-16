@@ -1,8 +1,3 @@
-//
-//  ContactDetailView.swift
-//  boop-ios
-//
-
 import SwiftUI
 import SwiftData
 
@@ -17,13 +12,9 @@ struct ContactDetailView: View {
             avatarData: nil,
             gradientColors: contact.gradientColors,
             boopCount: contact.interactions.count,
-            isOwnProfile: false
-        ) {
-            BoopHistoryView(
-                interactions: contact.interactions.sorted { $0.timestamp > $1.timestamp },
-                title: contact.displayName
-            )
-        }
+            isOwnProfile: false,
+            historyRoute: ContactHistoryRoute(contact: contact)
+        )
         .navigationTitle(contact.displayName)
         .navigationBarTitleDisplayMode(.inline)
     }

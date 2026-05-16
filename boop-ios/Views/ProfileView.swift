@@ -34,16 +34,18 @@ struct ProfileView: View {
                             gradientColors: profile.gradientColors,
                             boopCount: allInteractions.count,
                             isOwnProfile: true,
-                            onEdit: { profileState = .editingProfile }
-                        ) {
-                            AllBoopsHistoryView()
-                        }
+                            onEdit: { profileState = .editingProfile },
+                            historyRoute: ProfileHistoryRoute()
+                        )
                     } else {
                         noProfileFoundView
                     }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: ProfileHistoryRoute.self) { _ in
+                AllBoopsHistoryView()
+            }
             .navigationDestination(for: BoopInteraction.self) { interaction in
                 BoopInteractionDetailView(interaction: interaction)
             }

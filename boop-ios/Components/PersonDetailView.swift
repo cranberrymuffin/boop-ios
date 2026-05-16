@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct PersonDetailView<HistoryDestination: View>: View {
+struct PersonDetailView<Route: Hashable>: View {
     let displayName: String
     let birthday: Date?
     let bio: String?
@@ -9,7 +9,7 @@ struct PersonDetailView<HistoryDestination: View>: View {
     let boopCount: Int
     let isOwnProfile: Bool
     var onEdit: (() -> Void)? = nil
-    @ViewBuilder let historyDestination: () -> HistoryDestination
+    let historyRoute: Route
 
     var body: some View {
         ZStack {
@@ -66,9 +66,7 @@ struct PersonDetailView<HistoryDestination: View>: View {
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
 
-                BoopHistoryRow(count: boopCount) {
-                    historyDestination()
-                }
+                BoopHistoryRow(count: boopCount, route: historyRoute)
             }
             .scrollContentBackground(.hidden)
         }

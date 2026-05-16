@@ -1,10 +1,3 @@
-//
-//  ContactsView.swift
-//  boop-ios
-//
-//  Created by Anu Lal on 11/26/25.
-//
-
 import SwiftUI
 import SwiftData
 
@@ -22,7 +15,6 @@ struct ContactsView: View {
                         }
                     }
                 }
-                .scrollContentBackground(Visibility.hidden)
             }
             .pageBackground()
             .toolbar {
@@ -31,9 +23,7 @@ struct ContactsView: View {
                         .heading1Style()
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        showBoopRanging = true
-                    }) {
+                    Button(action: { showBoopRanging = true }) {
                         Image(systemName: "plus")
                             .font(.system(size: IconSize.standard, weight: .semibold))
                             .foregroundColor(.accentPrimary)
@@ -43,23 +33,25 @@ struct ContactsView: View {
             .navigationDestination(for: Contact.self) { contact in
                 ContactDetailView(contact: contact)
             }
-.navigationDestination(for: BoopInteraction.self) { interaction in
+            .navigationDestination(for: ContactHistoryRoute.self) { route in
+                BoopHistoryView(
+                    interactions: route.contact.interactions.sorted { $0.timestamp > $1.timestamp },
+                    title: route.contact.displayName
+                )
+            }
+            .navigationDestination(for: BoopInteraction.self) { interaction in
                 BoopInteractionDetailView(interaction: interaction)
             }
             .sheet(isPresented: $showBoopRanging) {
                 BoopRangingView(isPresented: $showBoopRanging)
             }
-
         }
     }
-
 }
 
 @ViewBuilder
 func buildContactCard(contact: Contact) -> some View {
-    ContactInteractionCard(contact: contact) {
-        // Optionally handle tap
-    }
+    ContactInteractionCard(contact: contact) {}
 }
 
 #Preview {
