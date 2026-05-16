@@ -10,12 +10,13 @@ struct ProfileView: View {
         case displayProfile
     }
 
+    @State private var path = NavigationPath()
     @Query private var allInteractions: [BoopInteraction]
     @State private var userProfile: UserProfile? = nil
     @State private var profileState = ProfileState.loadingProfile
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 switch profileState {
                 case .loadingProfile:
@@ -52,6 +53,7 @@ struct ProfileView: View {
             .onAppear(perform: loadProfile)
         }
         .pageBackground()
+        .onAppear { path = NavigationPath() }
     }
 
     private var loadingView: some View {

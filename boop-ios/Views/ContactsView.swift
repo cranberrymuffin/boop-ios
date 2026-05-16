@@ -3,10 +3,11 @@ import SwiftData
 
 struct ContactsView: View {
     @Query private var contacts: [Contact]
+    @State private var path = NavigationPath()
     let onSwitchToBoop: () -> Void
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollView {
                 LazyVStack {
                     ForEach(contacts) { contact in
@@ -43,6 +44,7 @@ struct ContactsView: View {
                 BoopInteractionDetailView(interaction: interaction)
             }
         }
+        .onAppear { path = NavigationPath() }
     }
 }
 
