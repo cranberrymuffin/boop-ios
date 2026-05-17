@@ -5,17 +5,21 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            BoopRangingView()
-                .tabItem { Label("Boop", systemImage: "hand.tap.fill") }
+            HomeView()
+                .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(0)
 
-            ContactsView(onSwitchToBoop: { selectedTab = 0 })
-                .tabItem { Label("Contacts", systemImage: "person.2") }
+            BoopRangingView()
+                .tabItem { Label("Boop", systemImage: "hand.tap.fill") }
                 .tag(1)
+
+            ContactsView(onSwitchToBoop: { selectedTab = 1 })
+                .tabItem { Label("Contacts", systemImage: "person.2") }
+                .tag(2)
 
             ProfileView()
                 .tabItem { Label("You", systemImage: "person.crop.circle") }
-                .tag(2)
+                .tag(3)
         }
     }
 }

@@ -48,7 +48,7 @@ struct ContactsView: View {
                 )
             }
             .navigationDestination(for: BoopInteraction.self) { interaction in
-                BoopInteractionDetailView(interaction: interaction)
+                InteractionDetailView(interaction: interaction)
             }
         }
         .onAppear { path = NavigationPath() }

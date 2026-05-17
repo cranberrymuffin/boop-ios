@@ -2,39 +2,23 @@
 //  BoopInteractionTimelineBody.swift
 //  boop-ios
 //
-//  Reusable time-grouped interaction list and detail view.
-//  Place BoopInteractionTimelineBody inside a ScrollView that lives
-//  within a NavigationStack or NavigationView.
+//  Compact time-grouped interaction list (used by contact history views).
+//  For the full-detail home feed, see HomeFeedBody.
 //
 
 import PhotosUI
 import SwiftUI
-import _MapKit_SwiftUI
 
-// MARK: - Shared List Body
+// MARK: - Compact List Body (used by ContactDetailView / BoopHistoryView)
 
 struct BoopInteractionTimelineBody: View {
     let interactions: [BoopInteraction]
 
-    private func headerText(for date: Date) -> String {
-        let text = date.relativeString().capitalized
-        let sanitized = text.trimmingCharacters(in: .whitespaces).lowercased()
-        let words = sanitized.components(separatedBy: .whitespaces)
-        if words.contains(where: {$0.contains("minute")})
-        {
-            return "Last Hour"
-        }
-        if words.contains(where: {$0.contains("hour") }) {
-            return "Today"
-        }
-        return text.capitalized
-    }
-
     var body: some View {
         LazyVStack(spacing: Spacing.sm) {
             ForEach(Array(interactions.enumerated()), id: \.element.id) { index, interaction in
-                let currentHeader = headerText(for: interaction.timestamp)
-                let previousHeader = index > 0 ? headerText(for: interactions[index - 1].timestamp) : nil
+                let currentHeader = interaction.timestamp.relativeGroupHeader()
+                let previousHeader = index > 0 ? interactions[index - 1].timestamp.relativeGroupHeader() : nil
 
                 if previousHeader != currentHeader {
                     Text(currentHeader)
@@ -58,9 +42,9 @@ struct BoopInteractionTimelineBody: View {
     }
 }
 
-// MARK: - Shared Detail View
+// MARK: - Full Detail View (used by navigation destinations)
 
-struct BoopInteractionDetailView: View {
+struct InteractionDetailView: View {
     @Bindable var interaction: BoopInteraction
     @State private var isEditing = false
     @State private var editEndDate: Date?
@@ -70,41 +54,10 @@ struct BoopInteractionDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.xl) {
-
-                // MARK: - Header
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text("Boop with \(interaction.title)")
-                        .primaryTextStyle()
-
-                    TimelineView(.periodic(from: .now, by: 60)) { _ in
-                        HStack(spacing: Spacing.xs) {
-                            Image(systemName: "clock")
-                                .font(.subtitle)
-                                .foregroundColor(.textMuted)
-                            Text(interaction.timestamp.relativeString())
-                                .subtitleStyle()
-                        }
-                    }
-
-                    if !interaction.location.isEmpty {
-                        HStack(spacing: Spacing.xs) {
-                            Image(systemName: "mappin.and.ellipse")
-                                .font(.subtitle)
-                                .foregroundColor(.textMuted)
-                            Text(interaction.location)
-                                .subtitleStyle()
-                        }
-                    }
-                }
-                .padding(.horizontal, Spacing.lg)
-
-                // MARK: - Map
-                if !interaction.pathCoordinates.isEmpty {
-                    pathMapView(coordinates: interaction.pathCoordinates)
-                        .padding(.horizontal, Spacing.lg)
+                InteractionContentView(interaction: interaction) {
+                    InteractionPathMapView(coordinates: interaction.pathCoordinates)
                 }
 
-                // MARK: - Edit End Time (edit mode only)
                 if isEditing {
                     DatePickerField(
                         title: "End",
@@ -115,10 +68,7 @@ struct BoopInteractionDetailView: View {
                     .padding(.horizontal, Spacing.lg)
                 }
 
-                // MARK: - Photos
                 photosSection
-
-                // MARK: - Notes
                 notesSection
             }
             .padding(.top, Spacing.lg)
@@ -240,73 +190,5 @@ struct BoopInteractionDetailView: View {
                     .padding(.horizontal, Spacing.lg)
             }
         }
-    }
-
-    // MARK: - Map View
-
-    fileprivate func mapPin(_ pinPoint: CLLocationCoordinate2D) -> Annotation<Text, some View> {
-        return Annotation("", coordinate: pinPoint) {
-            Circle()
-                .fill(.accentPrimary)
-                .frame(width: MapSize.pinRadius, height: MapSize.pinRadius)
-                .overlay(
-                    Circle()
-                        .strokeBorder(Color.white, lineWidth: MapSize.pinBorderWidth)
-                )
-        }
-    }
-
-    @ViewBuilder
-    private func pathMapView(coordinates: [CLLocationCoordinate2D]) -> some View {
-        Map(initialPosition: mapCameraPosition(for: coordinates), interactionModes: []) {
-            if coordinates.count > 1 {
-                MapPolyline(coordinates: coordinates)
-                    .stroke(.accentPrimary, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-            }
-
-            if let startPoint = coordinates.first {
-                mapPin(startPoint)
-            }
-
-            if let endPoint = coordinates.last {
-                mapPin(endPoint)
-            }
-        }
-        .frame(height: MapSize.cardMapHeight)
-        .clipShape(
-            UnevenRoundedRectangle(
-                topLeadingRadius: CornerRadius.md,
-                bottomLeadingRadius: CornerRadius.md,
-                bottomTrailingRadius: CornerRadius.md,
-                topTrailingRadius: CornerRadius.md
-            )
-        )
-        .allowsHitTesting(false)
-    }
-
-    private func mapCameraPosition(for coordinates: [CLLocationCoordinate2D]) -> MapCameraPosition {
-        guard !coordinates.isEmpty else { return .automatic }
-
-        if coordinates.count == 1 {
-            return .region(MKCoordinateRegion(
-                center: coordinates[0],
-                span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
-            ))
-        }
-
-        let minLat = coordinates.map(\.latitude).min()!
-        let maxLat = coordinates.map(\.latitude).max()!
-        let minLon = coordinates.map(\.longitude).min()!
-        let maxLon = coordinates.map(\.longitude).max()!
-
-        let center = CLLocationCoordinate2D(
-            latitude: (minLat + maxLat) / 2,
-            longitude: (minLon + maxLon) / 2
-        )
-        let span = MKCoordinateSpan(
-            latitudeDelta: max((maxLat - minLat) * 1.4, 0.002),
-            longitudeDelta: max((maxLon - minLon) * 1.4, 0.002)
-        )
-        return .region(MKCoordinateRegion(center: center, span: span))
     }
 }

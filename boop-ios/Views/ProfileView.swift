@@ -48,7 +48,7 @@ struct ProfileView: View {
                 AllBoopsHistoryView()
             }
             .navigationDestination(for: BoopInteraction.self) { interaction in
-                BoopInteractionDetailView(interaction: interaction)
+                InteractionDetailView(interaction: interaction)
             }
             .onAppear(perform: loadProfile)
         }

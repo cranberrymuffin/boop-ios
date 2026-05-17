@@ -20,4 +20,14 @@ extension Date {
         let formatter = abbreviated ? abbreviatedRelativeDateFormatter : fullRelativeDateFormatter
         return formatter.localizedString(for: self, relativeTo: .now)
     }
+
+    /// Returns a time-group header string for timeline displays ("Last Hour", "Today", or a relative date).
+    func relativeGroupHeader() -> String {
+        let text = relativeString().capitalized
+        let sanitized = text.trimmingCharacters(in: .whitespaces).lowercased()
+        let words = sanitized.components(separatedBy: .whitespaces)
+        if words.contains(where: { $0.contains("minute") }) { return "Last Hour" }
+        if words.contains(where: { $0.contains("hour") }) { return "Today" }
+        return text
+    }
 }
