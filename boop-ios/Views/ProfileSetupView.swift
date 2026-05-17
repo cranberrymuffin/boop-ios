@@ -2,8 +2,6 @@ import SwiftUI
 import PhotosUI
 
 struct ProfileSetupView: View {
-    @Environment(\.modelContext) private var modelContext
-
     @State private var name: String
     @State private var birthday: Date?
     @State private var bio: String
@@ -17,7 +15,7 @@ struct ProfileSetupView: View {
     let buttonText: String
     let requireAllFields: Bool
     let isEditMode: Bool
-    let onSave: (UserProfile) -> Void
+    let onSave: (Contact) -> Void
 
     init(
         initialName: String = "",
@@ -28,7 +26,7 @@ struct ProfileSetupView: View {
         isEditMode: Bool = false,
         gradientColors: [Color]? = nil,
         initialAvatarData: Data? = nil,
-        onSave: @escaping (UserProfile) -> Void
+        onSave: @escaping (Contact) -> Void
     ) {
         self.name = initialName
         self.birthday = initialBirthday
@@ -61,7 +59,6 @@ struct ProfileSetupView: View {
     }
 
     var body: some View {
-        
         NavigationView {
             ZStack {
                 AnimatedMeshGradient(
@@ -74,8 +71,7 @@ struct ProfileSetupView: View {
                     // Avatar picker
                     PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                         ZStack(alignment: .bottomTrailing) {
-                            if avatarData != nil
-                            {
+                            if avatarData != nil {
                                 let uiImage = UIImage(data: avatarData!)
                                 Image(uiImage: uiImage!)
                                     .resizable()
@@ -173,23 +169,22 @@ struct ProfileSetupView: View {
 
     private func saveProfile() {
         isLoading = true
-
-        let profile = UserProfile(
-            name: name.sanitize(),
+        guard let contact = ContactRepository.shared.saveOwnProfile(
+            displayName: name.sanitize(),
             birthday: birthday,
             bio: bio.isEmpty ? nil : bio.sanitize(),
             gradientColors: gradientColors,
             avatarData: avatarData
-        )
-
-        onSave(profile)
-
+        ) else {
+            isLoading = false
+            return
+        }
+        onSave(contact)
         isLoading = false
     }
-
 }
 
 #Preview {
     ProfileSetupView(onSave: { _ in })
-        .modelContainer(for: UserProfile.self, inMemory: true)
+        .modelContainer(for: Contact.self, inMemory: true)
 }

@@ -18,7 +18,6 @@ struct boop_iosApp: App {
     init() {
         self.schema = Schema([
                 Contact.self,
-                UserProfile.self,
                 BoopInteraction.self,
                 NotificationIntent.self,
             ])
@@ -26,7 +25,6 @@ struct boop_iosApp: App {
         let configurationUrl = self.modelConfiguration.url
         Task {
             await StorageCoordinator.shared.initialize(with: configurationUrl)
-            await UserDataStore.shared.warmup()
         }
     }
     

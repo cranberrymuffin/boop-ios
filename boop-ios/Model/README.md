@@ -21,15 +21,6 @@ erDiagram
         String notes
     }
 
-    UserProfile {
-        String name
-        Date createdAt
-        Date birthday
-        String bio
-        Data avatarData
-        String[] gradientColorsData
-    }
-
     NotificationIntent {
         UUID id
         String typeIdentifier
@@ -48,5 +39,5 @@ erDiagram
     Contact ||--o{ BoopInteraction : "cascade delete"
 ```
 
-`UserProfile` and `NotificationIntent` are standalone with no SwiftData relationships.
+`NotificationIntent` is standalone with no SwiftData relationships.
 `NotificationIntent.entityUUID` is a loose UUID reference to a `Contact` (not a SwiftData `@Relationship`), used for contact reminder notifications.

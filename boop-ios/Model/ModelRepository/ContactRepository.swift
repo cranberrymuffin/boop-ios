@@ -57,6 +57,28 @@ final class ContactRepository {
         return contact
     }
 
+    // MARK: - Own Profile
+
+    private let localDeviceUUIDKey = "com.boop.localDeviceUUID"
+
+    /// Returns the Contact record for this device's own profile, or nil if not set up yet.
+    func getOwnProfile() -> Contact? {
+        guard let uuidString = UserDefaults.standard.string(forKey: localDeviceUUIDKey),
+              let uuid = UUID(uuidString: uuidString) else { return nil }
+        return find(byUUID: uuid)
+    }
+
+    /// Upsert the user's own profile Contact, keyed by localDeviceUUID.
+    @discardableResult
+    func saveOwnProfile(displayName: String, birthday: Date?, bio: String?, gradientColors: [Color], avatarData: Data?) -> Contact? {
+        guard let uuidString = UserDefaults.standard.string(forKey: localDeviceUUIDKey),
+              let uuid = UUID(uuidString: uuidString) else { return nil }
+        guard let contact = findOrCreate(uuid: uuid, displayName: displayName, birthday: birthday, bio: bio, gradientColors: gradientColors) else { return nil }
+        contact.avatarData = avatarData
+        save()
+        return contact
+    }
+
     // MARK: - Delete
 
     /// Delete a contact (cascades to its interactions).

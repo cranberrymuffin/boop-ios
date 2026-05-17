@@ -118,30 +118,6 @@ actor UserDataStore {
         return userProfileData
     }
 
-    /// Saves user profile data to storage
-    /// Updates both cache and UserDefaults
-    func setUserProfile(_ profile: UserProfile) async {
-        // Update UserDefaults
-        UserDefaults.standard.set(profile.name, forKey: UserDefaultsKeys.name)
-        if let birthday = profile.birthday {
-            UserDefaults.standard.set(birthday, forKey: UserDefaultsKeys.birthday)
-        }
-        if let bio = profile.bio {
-            UserDefaults.standard.set(bio, forKey: UserDefaultsKeys.bio)
-        }
-        UserDefaults.standard.set(profile.gradientColorsData, forKey: UserDefaultsKeys.gradientColors)
-
-        // Update cache
-        cache[UserDefaultsKeys.name] = profile.name
-        if let birthday = profile.birthday {
-            cache[UserDefaultsKeys.birthday] = birthday
-        }
-        if let bio = profile.bio {
-            cache[UserDefaultsKeys.bio] = bio
-        }
-        cache[UserDefaultsKeys.gradientColors] = profile.gradientColorsData
-    }
-
     // MARK: - Individual Setters
 
     /// Sets the profile completion status

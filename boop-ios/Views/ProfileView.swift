@@ -12,7 +12,7 @@ struct ProfileView: View {
 
     @State private var path = NavigationPath()
     @Query private var allInteractions: [BoopInteraction]
-    @State private var userProfile: UserProfile? = nil
+    @State private var ownProfile: Contact? = nil
     @State private var profileState = ProfileState.loadingProfile
 
     var body: some View {
@@ -26,9 +26,9 @@ struct ProfileView: View {
                 case .noProfile:
                     editModeView
                 case .displayProfile:
-                    if let profile = userProfile {
+                    if let profile = ownProfile {
                         PersonDetailView(
-                            displayName: profile.name,
+                            displayName: profile.displayName,
                             birthday: profile.birthday,
                             bio: profile.bio,
                             avatarData: profile.avatarData,
@@ -74,30 +74,25 @@ struct ProfileView: View {
 
     private var editModeView: some View {
         ProfileSetupView(
-            initialName: userProfile?.name ?? "",
-            initialBirthday: userProfile?.birthday,
-            initialBio: userProfile?.bio ?? "",
+            initialName: ownProfile?.displayName ?? "",
+            initialBirthday: ownProfile?.birthday,
+            initialBio: ownProfile?.bio ?? "",
             buttonText: "Save",
             requireAllFields: false,
             isEditMode: true,
-            gradientColors: userProfile?.gradientColors,
-            initialAvatarData: userProfile?.avatarData,
-            onSave: { profile in
-                saveProfile(profile: profile)
-                loadProfile()
+            gradientColors: ownProfile?.gradientColors,
+            initialAvatarData: ownProfile?.avatarData,
+            onSave: { contact in
+                ownProfile = contact
+                profileState = .displayProfile
             }
         )
     }
 
-    private func saveProfile(profile: UserProfile) {
-        UserProfileRepository.shared.save(profile)
-        profileState = .displayProfile
-    }
-
     private func loadProfile() {
         profileState = .loadingProfile
-        userProfile = UserProfileRepository.shared.getCurrent()
-        profileState = userProfile != nil ? .displayProfile : .noProfile
+        ownProfile = ContactRepository.shared.getOwnProfile()
+        profileState = ownProfile != nil ? .displayProfile : .noProfile
     }
 }
 
@@ -112,5 +107,5 @@ struct AllBoopsHistoryView: View {
 
 #Preview {
     ProfileView()
-        .modelContainer(for: UserProfile.self, inMemory: true)
+        .modelContainer(for: Contact.self, inMemory: true)
 }
