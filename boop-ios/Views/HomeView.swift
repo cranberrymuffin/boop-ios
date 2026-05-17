@@ -9,18 +9,8 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            Group {
-                if interactions.isEmpty {
-                    ContentUnavailableView(
-                        "No boops yet",
-                        systemImage: "bubble.left.and.bubble.right",
-                        description: Text("Boop a friend to start your feed.")
-                    )
-                } else {
-                    ScrollView {
-                        HomeFeedBody(interactions: interactions)
-                    }
-                }
+            ScrollView {
+                HomeFeedBody(interactions: interactions.filter(\.hasContent))
             }
             .pageBackground()
             .toolbar {

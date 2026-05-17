@@ -1,13 +1,22 @@
+import SwiftData
 import SwiftUI
 
 struct MainTabView: View {
     @State private var selectedTab = 0
 
+    @Query private var interactions: [BoopInteraction]
+
+    private var hasHomeContent: Bool {
+        interactions.contains(where: \.hasContent)
+    }
+
     var body: some View {
         TabView(selection: $selectedTab) {
-            HomeView()
-                .tabItem { Label("Home", systemImage: "house.fill") }
-                .tag(0)
+            if hasHomeContent {
+                HomeView()
+                    .tabItem { Label("Home", systemImage: "house.fill") }
+                    .tag(0)
+            }
 
             BoopRangingView()
                 .tabItem { Label("Boop", systemImage: "hand.tap.fill") }
@@ -20,6 +29,11 @@ struct MainTabView: View {
             ProfileView()
                 .tabItem { Label("You", systemImage: "person.crop.circle") }
                 .tag(3)
+        }
+        .onChange(of: hasHomeContent) { _, hasContent in
+            if !hasContent && selectedTab == 0 {
+                selectedTab = 1
+            }
         }
     }
 }
