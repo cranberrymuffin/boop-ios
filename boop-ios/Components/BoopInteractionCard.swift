@@ -4,14 +4,14 @@ import SwiftUI
 // MARK: - Shared Row
 
 struct BoopListRow: View {
-    let thumbnailCount: Int
+    let avatarImages: [Data?]
     let title: String
     let staticLabel: String?
     let timestamp: Date?
 
     var body: some View {
         HStack(spacing: Spacing.md) {
-            OverlappingThumbnails(count: max(thumbnailCount, 1))
+            OverlappingThumbnails(avatarImages: avatarImages)
                 .frame(width: thumbnailFrameWidth, height: ThumbnailSize.single)
 
             VStack(alignment: .leading, spacing: LayoutConstant.cardContentGap) {
@@ -51,7 +51,7 @@ struct BoopListRow: View {
                             .font(.subtitle)
                             .foregroundColor(.textMuted)
                     }
-                    Text(relativeTimeString(for: timestamp))
+                    Text(timestamp.relativeString(abbreviated: true))
                         .font(.subtitle)
                         .foregroundColor(.textMuted)
                 }
@@ -65,56 +65,64 @@ struct BoopListRow: View {
     }
 
     private var thumbnailFrameWidth: CGFloat {
-        switch max(thumbnailCount, 1) {
+        switch max(avatarImages.count, 1) {
         case 1: return ThumbnailSize.single
         case 2: return ThumbnailSize.doubleWidth
         default: return ThumbnailSize.tripleWidth
         }
     }
 
-    private func relativeTimeString(for date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.dateTimeStyle = .named
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: .now)
-    }
 }
 
 // MARK: - Overlapping Thumbnails
 
 struct OverlappingThumbnails: View {
-    let count: Int
+    let avatarImages: [Data?]
+
+    private var count: Int { max(avatarImages.count, 1) }
 
     var body: some View {
         switch count {
         case 1:
-            circle()
+            avatar(at: 0)
         case 2:
             ZStack(alignment: .topLeading) {
-                circle()
+                avatar(at: 0)
                     .position(x: ThumbnailSize.single / 2, y: ThumbnailSize.single / 2)
-                circle()
+                avatar(at: 1)
                     .position(x: ThumbnailOffset.double + ThumbnailSize.single / 2, y: ThumbnailSize.single / 2)
             }
             .frame(width: ThumbnailSize.doubleWidth, height: ThumbnailSize.single)
         default:
             ZStack(alignment: .topLeading) {
-                circle()
+                avatar(at: 0)
                     .position(x: ThumbnailSize.single / 2, y: ThumbnailSize.single / 2)
-                circle()
+                avatar(at: 1)
                     .position(x: ThumbnailOffset.middle + ThumbnailSize.single / 2, y: ThumbnailSize.single / 2)
-                circle()
+                avatar(at: 2)
                     .position(x: ThumbnailOffset.back + ThumbnailSize.single / 2, y: ThumbnailSize.single / 2)
             }
             .frame(width: ThumbnailSize.tripleWidth, height: ThumbnailSize.single)
         }
     }
 
-    private func circle() -> some View {
-        Circle()
-            .fill(Color.formBackgroundInactive)
-            .overlay(Circle().strokeBorder(Color.accentPrimary, lineWidth: ThumbnailSize.borderWidth))
-            .frame(width: ThumbnailSize.single, height: ThumbnailSize.single)
+    @ViewBuilder
+    private func avatar(at index: Int) -> some View {
+        if index < avatarImages.count,
+           let data = avatarImages[index],
+           let uiImage = UIImage(data: data) {
+            Image(uiImage: uiImage)
+                .resizable()
+                .scaledToFill()
+                .frame(width: ThumbnailSize.single, height: ThumbnailSize.single)
+                .clipShape(Circle())
+                .overlay(Circle().strokeBorder(Color.accentPrimary, lineWidth: ThumbnailSize.borderWidth))
+        } else {
+            Circle()
+                .fill(Color.formBackgroundInactive)
+                .overlay(Circle().strokeBorder(Color.accentPrimary, lineWidth: ThumbnailSize.borderWidth))
+                .frame(width: ThumbnailSize.single, height: ThumbnailSize.single)
+        }
     }
 }
 

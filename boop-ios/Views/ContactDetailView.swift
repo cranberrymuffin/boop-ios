@@ -9,7 +9,7 @@ struct ContactDetailView: View {
             displayName: contact.displayName,
             birthday: contact.birthday,
             bio: contact.bio,
-            avatarData: nil,
+            avatarData: contact.avatarData,
             gradientColors: contact.gradientColors,
             boopCount: contact.interactions.count,
             isOwnProfile: false,

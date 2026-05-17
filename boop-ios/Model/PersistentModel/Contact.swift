@@ -16,6 +16,7 @@ final class Contact {
     var displayName: String
     var birthday: Date?
     var bio: String?
+    var avatarData: Data?
     var gradientColorsData: [String] = []
 
     // Relationship with cascade delete - when Contact is deleted, its interactions are too

@@ -7,6 +7,7 @@
 //  within a NavigationStack or NavigationView.
 //
 
+import PhotosUI
 import SwiftUI
 import _MapKit_SwiftUI
 
@@ -15,18 +16,8 @@ import _MapKit_SwiftUI
 struct BoopInteractionTimelineBody: View {
     let interactions: [BoopInteraction]
 
-    private let relativeDateFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        return formatter
-    }()
-    
-    private func getFormattedTimestamp(for date: Date) -> String {
-        return relativeDateFormatter.localizedString(for: date, relativeTo: Date()).capitalized
-    }
-    
     private func headerText(for date: Date) -> String {
-        let text = getFormattedTimestamp(for: date)
+        let text = date.relativeString().capitalized
         let sanitized = text.trimmingCharacters(in: .whitespaces).lowercased()
         let words = sanitized.components(separatedBy: .whitespaces)
         if words.contains(where: {$0.contains("minute")})
@@ -55,7 +46,7 @@ struct BoopInteractionTimelineBody: View {
 
                 NavigationLink(value: interaction) {
                     BoopListRow(
-                        thumbnailCount: interaction.thumbnailCount,
+                        avatarImages: [interaction.contact?.avatarData],
                         title: interaction.title,
                         staticLabel: interaction.location.isEmpty ? nil : interaction.location,
                         timestamp: interaction.timestamp
@@ -73,46 +64,47 @@ struct BoopInteractionDetailView: View {
     @Bindable var interaction: BoopInteraction
     @State private var isEditing = false
     @State private var editEndDate: Date?
-    
-    private let relativeDateFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        return formatter
-    }()
-    
-    private func getFormattedTimestamp(for date: Date) -> String {
-        return relativeDateFormatter.localizedString(for: date, relativeTo: Date()).capitalized
-    }
-    
-    private func getInteractionSubtitleText() -> String {
-        var interactionSubtitleArr: [String] = []
-        let formattedStart = getFormattedTimestamp(for: interaction.timestamp)
-        interactionSubtitleArr.append(formattedStart)
-        
-        let formattedEnd = interaction.endTimestamp != nil ?
-        getFormattedTimestamp(for: interaction.endTimestamp ?? Date()) : nil
-        
-        if formattedEnd != nil && formattedEnd != formattedStart {
-            interactionSubtitleArr.append("-")
-            interactionSubtitleArr.append(formattedEnd!)
-        }
-        
-        if !interaction.location.isEmpty {
-            interactionSubtitleArr.append("•")
-            interactionSubtitleArr.append(interaction.location)
-        }
-        return interactionSubtitleArr.joined(separator: " ")
-    }
+    @State private var editNotes: String = ""
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.lg) {
-                Text(interaction.title)
-                    .heading2Style()
+            VStack(alignment: .leading, spacing: Spacing.xl) {
 
-                Text("Start: \(interaction.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    .subtitleStyle()
+                // MARK: - Header
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    Text("Boop with \(interaction.title)")
+                        .primaryTextStyle()
 
+                    TimelineView(.periodic(from: .now, by: 60)) { _ in
+                        HStack(spacing: Spacing.xs) {
+                            Image(systemName: "clock")
+                                .font(.subtitle)
+                                .foregroundColor(.textMuted)
+                            Text(interaction.timestamp.relativeString())
+                                .subtitleStyle()
+                        }
+                    }
+
+                    if !interaction.location.isEmpty {
+                        HStack(spacing: Spacing.xs) {
+                            Image(systemName: "mappin.and.ellipse")
+                                .font(.subtitle)
+                                .foregroundColor(.textMuted)
+                            Text(interaction.location)
+                                .subtitleStyle()
+                        }
+                    }
+                }
+                .padding(.horizontal, Spacing.lg)
+
+                // MARK: - Map
+                if !interaction.pathCoordinates.isEmpty {
+                    pathMapView(coordinates: interaction.pathCoordinates)
+                        .padding(.horizontal, Spacing.lg)
+                }
+
+                // MARK: - Edit End Time (edit mode only)
                 if isEditing {
                     DatePickerField(
                         title: "End",
@@ -120,30 +112,20 @@ struct BoopInteractionDetailView: View {
                         showTimePicker: true,
                         selectedDate: $editEndDate
                     )
-                } else {
-                    if let end = interaction.endTimestamp {
-                        Text("End: \(end, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                            .subtitleStyle()
-                    }
-                }
-            Text(getInteractionSubtitleText())
-                .heading3Style()
-            
-            if !interaction.pathCoordinates.isEmpty {
-                pathMapView(coordinates: interaction.pathCoordinates)
-            }
-
-                if !interaction.location.isEmpty {
-                    Text("Location: \(interaction.location)")
-                        .subtitleStyle()
+                    .padding(.horizontal, Spacing.lg)
                 }
 
-                Spacer()
+                // MARK: - Photos
+                photosSection
+
+                // MARK: - Notes
+                notesSection
             }
+            .padding(.top, Spacing.lg)
+            .padding(.bottom, Spacing.xl)
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .padding()
         }
-        .navigationTitle("Boop Detail")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .pageBackground()
         .toolbar {
@@ -151,16 +133,115 @@ struct BoopInteractionDetailView: View {
                 Button(isEditing ? "Done" : "Edit") {
                     if isEditing {
                         interaction.endTimestamp = editEndDate
+                        interaction.notes = editNotes
                     } else {
                         editEndDate = interaction.endTimestamp
+                        editNotes = interaction.notes ?? ""
                     }
                     isEditing.toggle()
                 }
                 .foregroundColor(.accentPrimary)
             }
         }
+        .task(id: selectedPhotoItems) {
+            let items = selectedPhotoItems
+            guard !items.isEmpty else { return }
+            await withTaskGroup(of: Data?.self) { group in
+                for item in items {
+                    group.addTask { try? await item.loadTransferable(type: Data.self) }
+                }
+                for await data in group {
+                    if let data { interaction.imageData.append(data) }
+                }
+            }
+            selectedPhotoItems = []
+        }
     }
-    
+
+    // MARK: - Photos Section
+
+    @ViewBuilder
+    private var photosSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            HStack {
+                Text("Photos")
+                    .heading3Style()
+                Spacer()
+                if isEditing {
+                    PhotosPicker(selection: $selectedPhotoItems, matching: .images) {
+                        Image(systemName: "plus")
+                            .foregroundColor(.accentPrimary)
+                    }
+                }
+            }
+            .padding(.horizontal, Spacing.lg)
+
+            if interaction.imageData.isEmpty {
+                Text("No photos yet")
+                    .subtitleStyle()
+                    .padding(.horizontal, Spacing.lg)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Spacing.sm) {
+                        ForEach(Array(interaction.imageData.enumerated()), id: \.offset) { index, data in
+                            if let uiImage = UIImage(data: data) {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(uiImage: uiImage)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 80, height: 80)
+                                        .clipped()
+                                        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.md))
+
+                                    if isEditing {
+                                        Button {
+                                            guard index < interaction.imageData.count else { return }
+                                            interaction.imageData.remove(at: index)
+                                        } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .foregroundColor(.statusError)
+                                                .background(Circle().fill(Color.white))
+                                        }
+                                        .offset(x: 4, y: -4)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, Spacing.lg)
+                }
+            }
+        }
+    }
+
+    // MARK: - Notes Section
+
+    @ViewBuilder
+    private var notesSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            Text("Notes")
+                .heading3Style()
+                .padding(.horizontal, Spacing.lg)
+
+            if isEditing {
+                TextEditor(text: $editNotes)
+                    .font(.body)
+                    .foregroundColor(.textPrimary)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 100)
+                    .padding(Spacing.sm)
+                    .background(Color.formBackgroundInactive)
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.md))
+                    .padding(.horizontal, Spacing.lg)
+            } else {
+                Text(interaction.notes?.isEmpty == false ? interaction.notes! : "No notes yet")
+                    .subtitleStyle()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Spacing.lg)
+            }
+        }
+    }
+
     // MARK: - Map View
 
     fileprivate func mapPin(_ pinPoint: CLLocationCoordinate2D) -> Annotation<Text, some View> {
@@ -174,7 +255,7 @@ struct BoopInteractionDetailView: View {
                 )
         }
     }
-    
+
     @ViewBuilder
     private func pathMapView(coordinates: [CLLocationCoordinate2D]) -> some View {
         Map(initialPosition: mapCameraPosition(for: coordinates), interactionModes: []) {
@@ -182,15 +263,14 @@ struct BoopInteractionDetailView: View {
                 MapPolyline(coordinates: coordinates)
                     .stroke(.accentPrimary, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
             }
-            
+
             if let startPoint = coordinates.first {
                 mapPin(startPoint)
             }
-            
+
             if let endPoint = coordinates.last {
                 mapPin(endPoint)
             }
-            
         }
         .frame(height: MapSize.cardMapHeight)
         .clipShape(
@@ -203,7 +283,7 @@ struct BoopInteractionDetailView: View {
         )
         .allowsHitTesting(false)
     }
-    
+
     private func mapCameraPosition(for coordinates: [CLLocationCoordinate2D]) -> MapCameraPosition {
         guard !coordinates.isEmpty else { return .automatic }
 

@@ -13,7 +13,7 @@ struct ContactsView: View {
                     ForEach(contacts) { contact in
                         NavigationLink(value: contact) {
                             BoopListRow(
-                                thumbnailCount: contact.interactions.last?.thumbnailCount ?? 0,
+                                avatarImages: [contact.avatarData],
                                 title: contact.displayName,
                                 staticLabel: contact.interactions.isEmpty
                                     ? "No boops yet"
