@@ -54,9 +54,13 @@ struct BoopInteractionTimelineBody: View {
                 }
 
                 NavigationLink(value: interaction) {
-                    BoopInteractionCard(interaction: interaction)
+                    BoopListRow(
+                        thumbnailCount: interaction.thumbnailCount,
+                        title: interaction.title,
+                        staticLabel: interaction.location.isEmpty ? nil : interaction.location,
+                        timestamp: interaction.timestamp
+                    )
                 }
-                .padding(.horizontal, Spacing.lg)
                 .id(interaction.id)
             }
         }

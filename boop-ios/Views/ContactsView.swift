@@ -12,7 +12,14 @@ struct ContactsView: View {
                 LazyVStack {
                     ForEach(contacts) { contact in
                         NavigationLink(value: contact) {
-                            buildContactCard(contact: contact)
+                            BoopListRow(
+                                thumbnailCount: contact.interactions.last?.thumbnailCount ?? 0,
+                                title: contact.displayName,
+                                staticLabel: contact.interactions.isEmpty
+                                    ? "No boops yet"
+                                    : "\(contact.interactions.count) boop\(contact.interactions.count == 1 ? "" : "s")",
+                                timestamp: contact.interactions.last?.timestamp
+                            )
                         }
                     }
                 }
@@ -46,11 +53,6 @@ struct ContactsView: View {
         }
         .onAppear { path = NavigationPath() }
     }
-}
-
-@ViewBuilder
-func buildContactCard(contact: Contact) -> some View {
-    ContactInteractionCard(contact: contact) {}
 }
 
 #Preview {
