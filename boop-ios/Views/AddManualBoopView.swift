@@ -189,7 +189,6 @@ struct AddManualBoopView: View {
         }
 
         _ = BoopInteractionRepository.shared.create(
-            title: contact.displayName,
             location: locationManager.currentLocationName,
             timestamp: startDate ?? Date(),
             endTimestamp: endDate,

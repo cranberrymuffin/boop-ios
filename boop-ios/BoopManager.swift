@@ -192,7 +192,7 @@ class BoopManager: NSObject, ObservableObject {
         let interactionRepo = BoopInteractionRepository.shared
         let contactRepo = ContactRepository.shared
 
-        guard !interactionRepo.isDuplicate(contactUUID: boop.senderUUID, displayName: boop.displayName, timestamp: event.timestamp, window: duplicateWindow) else {
+        guard !interactionRepo.isDuplicate(contactUUID: boop.senderUUID, timestamp: event.timestamp, window: duplicateWindow) else {
             print("⏭️ BoopManager: Skipping duplicate interaction for \(boop.senderUUID.uuidString.prefix(8))")
             return
         }
@@ -208,7 +208,6 @@ class BoopManager: NSObject, ObservableObject {
         let locationName = locationManager?.currentLocationName ?? ""
 
         guard let interaction = interactionRepo.create(
-            title: boop.displayName,
             location: locationName,
             timestamp: event.timestamp,
             contact: contact
@@ -283,9 +282,7 @@ class BoopManager: NSObject, ObservableObject {
                 }
 
                 if let contact = contactRepo.findOrCreate(uuid: senderUUID, displayName: "Simulated Friend", birthday: nil, bio: nil, gradientColors: []) {
-                    let displayName = contact.displayName
                     _ = interactionRepo.create(
-                        title: displayName,
                         location: locationName,
                         timestamp: sessionStart,
                         endTimestamp: now,

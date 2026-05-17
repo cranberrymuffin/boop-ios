@@ -31,7 +31,7 @@ struct BoopInteractionTimelineBody: View {
                 NavigationLink(value: interaction) {
                     BoopListRow(
                         avatarImages: [interaction.contact?.avatarData],
-                        title: interaction.title,
+                        title: interaction.displayTitle,
                         staticLabel: interaction.location.isEmpty ? nil : interaction.location,
                         timestamp: interaction.timestamp
                     )

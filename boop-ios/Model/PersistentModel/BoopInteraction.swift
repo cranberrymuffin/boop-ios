@@ -19,7 +19,6 @@ struct PathCoordinate: Codable {
 @Model
 final class BoopInteraction {
     var id: UUID
-    var title: String
     var location: String
     var timestamp: Date
     var endTimestamp: Date? // optional end time for interactions that span a duration
@@ -31,9 +30,10 @@ final class BoopInteraction {
     // Relationship to Contact
     var contact: Contact?
 
-    init(title: String, location: String, timestamp: Date, endTimestamp: Date? = Date().addingTimeInterval(2 * 60 * 60), imageData: [Data] = [], notes: String? = nil, contact: Contact? = nil, pathCoordinates: [CLLocationCoordinate2D] = []) {
+    var displayTitle: String { contact?.displayName ?? "Unknown" }
+
+    init(location: String, timestamp: Date, endTimestamp: Date? = Date().addingTimeInterval(2 * 60 * 60), imageData: [Data] = [], notes: String? = nil, contact: Contact? = nil, pathCoordinates: [CLLocationCoordinate2D] = []) {
         self.id = UUID()
-        self.title = title
         self.location = location
         self.timestamp = timestamp
         self.endTimestamp = endTimestamp

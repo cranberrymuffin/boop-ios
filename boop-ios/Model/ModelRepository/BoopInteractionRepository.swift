@@ -20,7 +20,6 @@ final class BoopInteractionRepository {
 
     /// Create a new interaction, insert it, and associate it with the given contact.
     func create(
-        title: String,
         location: String,
         timestamp: Date,
         endTimestamp: Date? = nil,
@@ -30,7 +29,6 @@ final class BoopInteractionRepository {
         guard let modelContext else { return nil }
 
         let interaction = BoopInteraction(
-            title: title,
             location: location,
             timestamp: timestamp,
             endTimestamp: endTimestamp,
@@ -47,12 +45,7 @@ final class BoopInteractionRepository {
 
     /// Check whether an interaction for this contact + display name already exists
     /// within ±`window` seconds of `timestamp`.
-    func isDuplicate(
-        contactUUID: UUID,
-        displayName: String,
-        timestamp: Date,
-        window: TimeInterval
-    ) -> Bool {
+    func isDuplicate(contactUUID: UUID, timestamp: Date, window: TimeInterval) -> Bool {
         guard let modelContext else { return false }
 
         let windowStart = timestamp.addingTimeInterval(-window)
@@ -61,7 +54,7 @@ final class BoopInteractionRepository {
             $0.timestamp >= windowStart && $0.timestamp <= windowEnd
         })
         let interactions = (try? modelContext.fetch(descriptor)) ?? []
-        return interactions.contains { $0.contact?.uuid == contactUUID && $0.title == displayName }
+        return interactions.contains { $0.contact?.uuid == contactUUID }
     }
 
     /// Find the most recent interaction for a contact (by contact UUID).

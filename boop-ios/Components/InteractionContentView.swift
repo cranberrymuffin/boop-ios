@@ -9,7 +9,7 @@ struct InteractionContentView<MapContent: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xl) {
             VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text("Boop with \(interaction.title)")
+                Text("Boop with \(interaction.displayTitle)")
                     .primaryTextStyle()
 
                 TimelineView(.periodic(from: .now, by: 60)) { _ in
