@@ -18,7 +18,7 @@ class BluetoothManager: NSObject, ObservableObject {
 
     /// Local device UUID - persisted across app launches
     private(set) lazy var localDeviceUUID: UUID = {
-        let key = "com.boop.localDeviceUUID"
+        let key = UserDefaultsKeys.localDeviceUUID
         if let uuidString = UserDefaults.standard.string(forKey: key),
            let uuid = UUID(uuidString: uuidString) {
             return uuid

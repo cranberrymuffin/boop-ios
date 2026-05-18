@@ -1,6 +1,9 @@
 import Foundation
 
 struct UserDefaultsKeys {
+    // MARK: - Device Identity
+    static let localDeviceUUID = "com.boop.localDeviceUUID"
+
     // MARK: - Profile Status
     static let profileComplete = "profileComplete"
 

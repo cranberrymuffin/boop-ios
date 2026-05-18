@@ -59,7 +59,7 @@ final class ContactRepository {
 
     // MARK: - Own Profile
 
-    private let localDeviceUUIDKey = "com.boop.localDeviceUUID"
+    private let localDeviceUUIDKey = UserDefaultsKeys.localDeviceUUID
 
     /// Returns the Contact record for this device's own profile, or nil if not set up yet.
     func getOwnProfile() -> Contact? {
