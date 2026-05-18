@@ -268,8 +268,11 @@ class BoopManager: NSObject, ObservableObject {
             return
         }
 
-        // Get location data for the session
-        let pathCoords = locationManager?.getLocations(from: sessionStart, to: now) ?? []
+        // Get location data for the session; fall back to current position if device didn't move
+        var pathCoords = locationManager?.getLocations(from: sessionStart, to: now) ?? []
+        if pathCoords.isEmpty, let coord = locationManager?.currentCoordinate() {
+            pathCoords = [coord]
+        }
 
         // Try to find an existing interaction created during this session (from a proximity boop)
         if let existingInteraction = interactionRepo.findLatest(forContactUUID: senderUUID) {
