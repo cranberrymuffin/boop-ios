@@ -3,14 +3,23 @@ import SwiftData
 
 struct ContactsView: View {
     @Query private var contacts: [Contact]
-    @State private var path = NavigationPath()
+    @Binding var path: NavigationPath
     let onSwitchToBoop: () -> Void
+
+    private var localUUID: UUID? {
+        UserDefaults.standard.string(forKey: UserDefaultsKeys.localDeviceUUID).flatMap(UUID.init)
+    }
+
+    private var visibleContacts: [Contact] {
+        guard let localUUID else { return contacts }
+        return contacts.filter { $0.uuid != localUUID }
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
                 LazyVStack {
-                    ForEach(contacts) { contact in
+                    ForEach(visibleContacts) { contact in
                         NavigationLink(value: contact) {
                             BoopListRow(
                                 avatarImages: [contact.avatarData],
@@ -51,11 +60,10 @@ struct ContactsView: View {
                 InteractionDetailView(interaction: interaction)
             }
         }
-        .onAppear { path = NavigationPath() }
     }
 }
 
 #Preview {
-    ContactsView(onSwitchToBoop: {})
+    ContactsView(path: .constant(NavigationPath()), onSwitchToBoop: {})
         .modelContainer(for: Contact.self, inMemory: true)
 }

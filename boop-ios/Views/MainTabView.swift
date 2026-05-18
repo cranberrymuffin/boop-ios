@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MainTabView: View {
     @State private var selectedTab = 0
+    @State private var contactsPath = NavigationPath()
 
     @Query private var interactions: [BoopInteraction]
 
@@ -22,7 +23,7 @@ struct MainTabView: View {
                 .tabItem { Label("Boop", systemImage: "hand.tap.fill") }
                 .tag(1)
 
-            ContactsView(onSwitchToBoop: { selectedTab = 1 })
+            ContactsView(path: $contactsPath, onSwitchToBoop: { selectedTab = 1 })
                 .tabItem { Label("Contacts", systemImage: "person.2") }
                 .tag(2)
 
@@ -35,6 +36,22 @@ struct MainTabView: View {
                 selectedTab = 1
             }
         }
+        .onOpenURL { url in
+            handleDeepLink(url)
+        }
+    }
+
+    private func handleDeepLink(_ url: URL) {
+        guard url.scheme == "boop", url.host == "timeline" else { return }
+        let segments = url.pathComponents.filter { $0 != "/" }
+        guard let idString = segments.first,
+              let uuid = UUID(uuidString: idString),
+              let interaction = interactions.first(where: { $0.id == uuid }),
+              let contact = interaction.contact else { return }
+        contactsPath = NavigationPath()
+        contactsPath.append(contact)
+        contactsPath.append(interaction)
+        selectedTab = 2
     }
 }
 

@@ -23,7 +23,6 @@ struct HomeView: View {
                 InteractionDetailView(interaction: interaction)
             }
         }
-        .onAppear { path = NavigationPath() }
     }
 }
 
