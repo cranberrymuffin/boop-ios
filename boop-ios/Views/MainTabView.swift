@@ -1,6 +1,12 @@
 import SwiftData
 import SwiftUI
 
+@MainActor
+final class DeepLinkState {
+    static let shared = DeepLinkState()
+    var pendingCameraInteractionID: UUID?
+}
+
 struct MainTabView: View {
     @State private var selectedTab = 0
     @State private var contactsPath = NavigationPath()
@@ -48,6 +54,9 @@ struct MainTabView: View {
               let uuid = UUID(uuidString: idString),
               let interaction = interactions.first(where: { $0.id == uuid }),
               let contact = interaction.contact else { return }
+        if segments.count > 1 && segments[1] == "camera" {
+            DeepLinkState.shared.pendingCameraInteractionID = uuid
+        }
         contactsPath = NavigationPath()
         contactsPath.append(contact)
         contactsPath.append(interaction)

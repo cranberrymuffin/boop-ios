@@ -47,25 +47,17 @@ struct BoopInteractionTimelineBody: View {
 struct InteractionDetailView: View {
     @Bindable var interaction: BoopInteraction
     @State private var isEditing = false
-    @State private var editEndDate: Date?
     @State private var editNotes: String = ""
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var showPhotoSourceSheet = false
+    @State private var showPhotoPicker = false
+    @State private var showCamera = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.xl) {
                 InteractionContentView(interaction: interaction) {
                     InteractionPathMapView(coordinates: interaction.pathCoordinates)
-                }
-
-                if isEditing {
-                    DatePickerField(
-                        title: "End",
-                        placeholder: "When did this boop end?",
-                        showTimePicker: true,
-                        selectedDate: $editEndDate
-                    )
-                    .padding(.horizontal, Spacing.lg)
                 }
 
                 photosSection
@@ -78,19 +70,52 @@ struct InteractionDetailView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .pageBackground()
+        .onAppear {
+            if DeepLinkState.shared.pendingCameraInteractionID == interaction.id {
+                DeepLinkState.shared.pendingCameraInteractionID = nil
+                showCamera = true
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(isEditing ? "Done" : "Edit") {
-                    if isEditing {
-                        interaction.endTimestamp = editEndDate
-                        interaction.notes = editNotes
-                    } else {
-                        editEndDate = interaction.endTimestamp
-                        editNotes = interaction.notes ?? ""
-                    }
+                    if isEditing { interaction.notes = editNotes }
+                    else { editNotes = interaction.notes ?? "" }
                     isEditing.toggle()
                 }
                 .foregroundColor(.accentPrimary)
+            }
+        }
+        .sheet(isPresented: $showPhotoSourceSheet) {
+            VStack(spacing: 0) {
+                Button {
+                    showPhotoSourceSheet = false
+                    showCamera = true
+                } label: {
+                    Label("Take Photo", systemImage: "camera")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(Spacing.lg)
+                        .foregroundColor(.textPrimary)
+                }
+                Divider()
+                Button {
+                    showPhotoSourceSheet = false
+                    showPhotoPicker = true
+                } label: {
+                    Label("Choose from Library", systemImage: "photo.on.rectangle")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(Spacing.lg)
+                        .foregroundColor(.textPrimary)
+                }
+            }
+            .background(Color.backgroundSecondary)
+            .presentationDetents([.height(140)])
+            .presentationDragIndicator(.visible)
+        }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItems, matching: .images)
+        .sheet(isPresented: $showCamera) {
+            CameraPickerView { data in
+                interaction.imageData.append(data)
             }
         }
         .task(id: selectedPhotoItems) {
@@ -113,53 +138,51 @@ struct InteractionDetailView: View {
     @ViewBuilder
     private var photosSection: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
-            HStack {
-                Text("Photos")
-                    .heading3Style()
-                Spacer()
-                if isEditing {
-                    PhotosPicker(selection: $selectedPhotoItems, matching: .images) {
-                        Image(systemName: "plus")
-                            .foregroundColor(.accentPrimary)
+            Text("Photos")
+                .heading3Style()
+                .padding(.horizontal, Spacing.lg)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.sm) {
+                    Button {
+                        showPhotoSourceSheet = true
+                    } label: {
+                        RoundedRectangle(cornerRadius: CornerRadius.md)
+                            .fill(Color.formBackgroundInactive)
+                            .frame(width: 80, height: 80)
+                            .overlay {
+                                Image(systemName: "camera")
+                                    .font(.title2)
+                                    .foregroundColor(.textMuted)
+                            }
                     }
-                }
-            }
-            .padding(.horizontal, Spacing.lg)
 
-            if interaction.imageData.isEmpty {
-                Text("No photos yet")
-                    .subtitleStyle()
-                    .padding(.horizontal, Spacing.lg)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Spacing.sm) {
-                        ForEach(Array(interaction.imageData.enumerated()), id: \.offset) { index, data in
-                            if let uiImage = UIImage(data: data) {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(uiImage: uiImage)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 80, height: 80)
-                                        .clipped()
-                                        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.md))
+                    ForEach(Array(interaction.imageData.enumerated()), id: \.offset) { index, data in
+                        if let uiImage = UIImage(data: data) {
+                            ZStack(alignment: .topTrailing) {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 80, height: 80)
+                                    .clipped()
+                                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.md))
 
-                                    if isEditing {
-                                        Button {
-                                            guard index < interaction.imageData.count else { return }
-                                            interaction.imageData.remove(at: index)
-                                        } label: {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .foregroundColor(.statusError)
-                                                .background(Circle().fill(Color.white))
-                                        }
-                                        .offset(x: 4, y: -4)
+                                if isEditing {
+                                    Button {
+                                        guard index < interaction.imageData.count else { return }
+                                        interaction.imageData.remove(at: index)
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundColor(.statusError)
+                                            .background(Circle().fill(Color.white))
                                     }
+                                    .offset(x: 4, y: -4)
                                 }
                             }
                         }
                     }
-                    .padding(.horizontal, Spacing.lg)
                 }
+                .padding(.horizontal, Spacing.lg)
             }
         }
     }
@@ -189,6 +212,41 @@ struct InteractionDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, Spacing.lg)
             }
+        }
+    }
+}
+
+// MARK: - Camera Picker
+
+private struct CameraPickerView: UIViewControllerRepresentable {
+    let onCapture: (Data) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraPickerView
+        init(_ parent: CameraPickerView) { self.parent = parent }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage,
+               let data = image.jpegData(compressionQuality: 0.8) {
+                parent.onCapture(data)
+            }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
         }
     }
 }

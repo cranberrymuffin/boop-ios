@@ -14,21 +14,23 @@ struct BoopLiveActivityLiveActivity: Widget {
         ActivityConfiguration(for: BoopLiveActivityAttributes.self) { context in
             // Lock screen/banner UI
             HStack(spacing: 12) {
-                Image(systemName: "hand.raised.fill")
-                    .font(.title2)
-                    .foregroundColor(Color("accentPrimary"))
-                
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Booped with")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    
+
                     Text(context.state.contactName)
                         .font(.headline)
                         .fontWeight(.semibold)
                 }
-                
+
                 Spacer()
+
+                Link(destination: cameraLink(for: context.state)) {
+                    Image(systemName: "camera.fill")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                }
             }
             .padding()
             .activityBackgroundTint(Color(UIColor.systemBackground))
@@ -37,18 +39,21 @@ struct BoopLiveActivityLiveActivity: Widget {
 
         } dynamicIsland: { context in
             DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) {
-                    Image(systemName: "hand.raised.fill")
-                        .font(.title2)
-                        .foregroundColor(Color("accentPrimary"))
-                }
                 
+                DynamicIslandExpandedRegion(.trailing) {
+                    Link(destination: cameraLink(for: context.state)) {
+                        Image(systemName: "camera.fill")
+                            .font(.title2)
+                            .foregroundColor(Color("accentPrimary"))
+                    }
+                }
+
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(spacing: 4) {
                         Text("Booped with")
                             .font(.caption2)
                             .foregroundColor(.secondary)
-                        
+
                         Text(context.state.contactName)
                             .font(.headline)
                             .fontWeight(.semibold)
@@ -56,16 +61,14 @@ struct BoopLiveActivityLiveActivity: Widget {
                     .padding(.vertical, 4)
                 }
             } compactLeading: {
-                Image(systemName: "hand.raised.fill")
-                    .foregroundColor(Color("accentPrimary"))
+                EmptyView()
             } compactTrailing: {
                 Text(context.state.contactName)
                     .font(.caption2)
                     .fontWeight(.medium)
                     .lineLimit(1)
             } minimal: {
-                Image(systemName: "hand.raised.fill")
-                    .foregroundColor(Color("accentPrimary"))
+                EmptyView()
             }
             .widgetURL(deepLink(for: context.state))
         }
@@ -74,6 +77,14 @@ struct BoopLiveActivityLiveActivity: Widget {
     private func deepLink(for state: BoopLiveActivityAttributes.ContentState) -> URL {
         if let interactionID = state.interactionID {
             return URL(string: "boop://timeline/\(interactionID.uuidString)")!
+        } else {
+            return URL(string: "boop://timeline")!
+        }
+    }
+
+    private func cameraLink(for state: BoopLiveActivityAttributes.ContentState) -> URL {
+        if let interactionID = state.interactionID {
+            return URL(string: "boop://timeline/\(interactionID.uuidString)/camera")!
         } else {
             return URL(string: "boop://timeline")!
         }
