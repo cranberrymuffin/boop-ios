@@ -27,6 +27,8 @@ class BoopManager: NSObject, ObservableObject {
     private var deviceSessionStart: [UUID: Date] = [:]
     /// Minimum session duration (seconds) to auto-create a boop on disconnect
     private let minimumSessionDuration: TimeInterval = 60 // 1 minute
+    /// Devices currently within touching range — boop fires on separation
+    private var devicesInTouchingRange: Set<UUID> = []
 
     // MARK: - Dependencies
     private var bluetoothManager: BluetoothManager?
@@ -103,18 +105,26 @@ class BoopManager: NSObject, ObservableObject {
     }
 
     private func checkNearbyDevicesForBoops(_ devices: [UUID: DevicePositionCategory]) {
-        for (deviceID, position) in devices {
-            if position == .ApproxTouching && previousPositions[deviceID] != .ApproxTouching {
-                if let lastBoop = lastBoopTime[deviceID],
-                   Date().timeIntervalSince(lastBoop) < boopCooldown {
-                    print("⏳ BoopManager: Skipping auto-boop for \(deviceID.uuidString.prefix(8)) - cooldown active")
-                    continue
-                }
-                print("🤝 BoopManager: Device \(deviceID.uuidString.prefix(8)) entered touching range - sending boop")
-                lastBoopTime[deviceID] = Date()
-                Task {
-                    _ = await self.sendBluetoothMessage(deviceId: deviceID, messageType: .boop)
-                }
+        // Track devices entering touching range
+        for (deviceID, position) in devices where position == .ApproxTouching {
+            if devicesInTouchingRange.insert(deviceID).inserted {
+                print("🤝 BoopManager: Device \(deviceID.uuidString.prefix(8)) entered touching range")
+            }
+        }
+
+        // Fire boop when a tracked device leaves touching range (moved away or UWB lost)
+        let separated = devicesInTouchingRange.filter { devices[$0] != .ApproxTouching }
+        for deviceID in separated {
+            devicesInTouchingRange.remove(deviceID)
+            if let lastBoop = lastBoopTime[deviceID],
+               Date().timeIntervalSince(lastBoop) < boopCooldown {
+                print("⏳ BoopManager: Skipping boop for \(deviceID.uuidString.prefix(8)) - cooldown active")
+                continue
+            }
+            print("🤝 BoopManager: Device \(deviceID.uuidString.prefix(8)) separated after touching - sending boop")
+            lastBoopTime[deviceID] = Date()
+            Task {
+                _ = await self.sendBluetoothMessage(deviceId: deviceID, messageType: .boop)
             }
         }
     }
@@ -143,6 +153,7 @@ class BoopManager: NSObject, ObservableObject {
         nearbyDistances.removeAll()
         nearbyDevicePositions.removeAll()
         connectedPeripheralIDs.removeAll()
+        devicesInTouchingRange.removeAll()
         bluetoothManager?.stop()
     }
 

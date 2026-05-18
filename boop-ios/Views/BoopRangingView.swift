@@ -131,6 +131,8 @@ struct BoopRangingView: View {
                 }
             }
             .animation(.easeInOut(duration: animationDuration), value: showBoop)
+            .onAppear { boopManager.start() }
+            .onDisappear { boopManager.stop() }
             .onChange(of: boopManager.latestBoopEvent) { _, newValue in
                 guard let event = newValue, !showBoop else { return }
                 showBoopOverlay(displayName: event.boop.displayName)
