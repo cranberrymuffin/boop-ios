@@ -43,7 +43,7 @@ final class BoopInteraction {
         self.pathCoordinatesData = Self.encode(pathCoordinates)
     }
 
-    var hasContent: Bool { !imageData.isEmpty || !(notes ?? "").isEmpty }
+    var hasContent: Bool { !imageData.isEmpty || !(notes ?? "").isEmpty || pathCoordinatesData != nil }
 
     var thumbnailCount: Int {
         contact != nil ? 1 : 0

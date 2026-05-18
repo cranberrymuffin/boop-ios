@@ -49,8 +49,37 @@ struct MapSnapshotView: View {
         )
         options.scale = UIScreen.main.scale
         guard let result = try? await MKMapSnapshotter(options: options).start() else { return nil }
-        snapshotCache.setObject(result.image, forKey: cacheKey)
-        return result.image
+
+        let points = coordinates.map { result.point(for: $0) }
+        let image = UIGraphicsImageRenderer(size: options.size).image { _ in
+            result.image.draw(at: .zero)
+
+            if points.count > 1 {
+                let path = UIBezierPath()
+                path.move(to: points[0])
+                points.dropFirst().forEach { path.addLine(to: $0) }
+                UIColor(Color.accentPrimary).setStroke()
+                path.lineWidth = 3
+                path.lineCapStyle = .round
+                path.lineJoinStyle = .round
+                path.stroke()
+            }
+
+            let pinTargets = points.count > 1 ? [points.first!, points.last!] : [points.first!]
+            for point in pinTargets {
+                let r = MapSize.pinRadius
+                let rect = CGRect(x: point.x - r / 2, y: point.y - r / 2, width: r, height: r)
+                let circle = UIBezierPath(ovalIn: rect)
+                UIColor(Color.accentPrimary).setFill()
+                circle.fill()
+                UIColor.white.setStroke()
+                circle.lineWidth = MapSize.pinBorderWidth
+                circle.stroke()
+            }
+        }
+
+        snapshotCache.setObject(image, forKey: cacheKey)
+        return image
     }
 
     private func snapshotRegion(for coords: [CLLocationCoordinate2D]) -> MKCoordinateRegion {
