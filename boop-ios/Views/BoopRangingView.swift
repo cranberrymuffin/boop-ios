@@ -17,17 +17,79 @@ struct BoopRangingView: View {
 
     private let animationDuration: TimeInterval = 2
 
+    // MARK: - Nearby device row model
+
+    private struct NearbyDeviceRowData: Identifiable {
+        let id: UUID
+        let displayName: String
+        let distanceText: String
+        let zoneLabel: String
+        let isUWBActive: Bool
+    }
+
+    private func makeRows() -> [NearbyDeviceRowData] {
+        // Seed all BLE-connected devices as Unknown, then override with UWB data
+        var devices: [UUID: DevicePositionCategory] = [:]
+        for id in boopManager.connectedPeripheralIDs {
+            devices[id] = .Unknown
+        }
+        for (uuid, category) in boopManager.nearbyDevicePositions {
+            devices[uuid] = category
+        }
+        return devices.map { (uuid, category) in
+            let name = boopManager.nearbyDeviceNames[uuid] ?? "Unknown (\(uuid.uuidString.prefix(4)))"
+            let distance = boopManager.nearbyDistances[uuid]
+            let distanceText: String
+            if let d = distance, category != .Unknown {
+                distanceText = String(format: "%.2fm", d)
+            } else {
+                distanceText = "—"
+            }
+            let zone: String = {
+                switch category {
+                case .ApproxTouching: return "Touching"
+                case .InRange:        return "Nearby"
+                case .OutOfRange:     return "Out of range"
+                case .Unknown:        return "Connecting…"
+                }
+            }()
+            let uwbActive = distance != nil && category != .Unknown
+            return NearbyDeviceRowData(
+                id: uuid,
+                displayName: name,
+                distanceText: distanceText,
+                zoneLabel: zone,
+                isUWBActive: uwbActive
+            )
+        }
+        .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    // MARK: - Body
+
     var body: some View {
         NavigationStack {
             VStack(spacing: Spacing.lg) {
-                Spacer()
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .tint(.accentPrimary)
-
-                Text("Tap to boop")
-                    .subtitleStyle()
-                Spacer()
+                let rows = makeRows()
+                if rows.isEmpty {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .tint(.accentPrimary)
+                    Text("Tap to boop")
+                        .subtitleStyle()
+                    Spacer()
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: Spacing.md) {
+                            ForEach(rows) { row in
+                                nearbyDeviceRow(row)
+                            }
+                        }
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.top, Spacing.md)
+                    }
+                }
 
                 #if DEBUG
                 debugControls
@@ -75,6 +137,35 @@ struct BoopRangingView: View {
             }
         }
     }
+
+    // MARK: - Device row
+
+    @ViewBuilder
+    private func nearbyDeviceRow(_ row: NearbyDeviceRowData) -> some View {
+        HStack(alignment: .center, spacing: Spacing.md) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text(row.displayName)
+                    .heading3Style()
+                Text(row.zoneLabel)
+                    .subtitleStyle()
+                    .foregroundColor(.textMuted)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: Spacing.xs) {
+                Text(row.distanceText)
+                    .heading3Style()
+                    .foregroundColor(.accentPrimary)
+                Text(row.isUWBActive ? "UWB active" : "BLE only")
+                    .subtitleStyle()
+                    .foregroundColor(row.isUWBActive ? .accentPrimary : .textMuted)
+            }
+        }
+        .padding(Spacing.lg)
+        .frame(maxWidth: .infinity)
+        .cardStyle()
+    }
+
+    // MARK: - Boop overlay
 
     private func showBoopOverlay(displayName: String) {
         currentBoopDisplayName = displayName

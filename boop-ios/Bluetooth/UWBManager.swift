@@ -25,8 +25,10 @@ protocol UWBManaging: AnyObject {
     func isRanging(to deviceID: UUID) -> Bool
     
     var nearbyDevices: [UUID: DevicePositionCategory] { get }
-    
     var nearbyDevicesPublisher: AnyPublisher<[UUID: DevicePositionCategory], Never> { get }
+
+    var nearbyDistances: [UUID: Float] { get }
+    var nearbyDistancesPublisher: AnyPublisher<[UUID: Float], Never> { get }
 }
 
 enum DevicePositionCategory: UInt8 {
@@ -44,10 +46,15 @@ class UWBManager: NSObject, UWBManaging {
     
     
     @Published var nearbyDevices: [UUID: DevicePositionCategory] = [:]
+    @Published var nearbyDistances: [UUID: Float] = [:]
     private var devicesWithUWBRanging: Set<UUID> = []
-    
-    var nearbyDevicesPublisher: AnyPublisher<[UUID : DevicePositionCategory], Never> {
+
+    var nearbyDevicesPublisher: AnyPublisher<[UUID: DevicePositionCategory], Never> {
         $nearbyDevices.eraseToAnyPublisher()
+    }
+
+    var nearbyDistancesPublisher: AnyPublisher<[UUID: Float], Never> {
+        $nearbyDistances.eraseToAnyPublisher()
     }
 
     // MARK: - Configuration
@@ -87,6 +94,10 @@ class UWBManager: NSObject, UWBManaging {
     }
     
     func getDiscoveryTokenForDeviceSession(for deviceID: UUID) -> Data? {
+        // Lazy-register: peripheral read can arrive before we've connected as central to this device
+        if deviceToNISession[deviceID] == nil {
+            registerPeer(to: deviceID)
+        }
         guard let token = deviceToNISession[deviceID]?.discoveryToken else {
             return nil
         }
@@ -159,6 +170,7 @@ class UWBManager: NSObject, UWBManaging {
         deviceTokens.removeValue(forKey: deviceID)
         nearbyObjects.removeValue(forKey: deviceID)
         nearbyDevices.removeValue(forKey: deviceID)
+        nearbyDistances.removeValue(forKey: deviceID)
         devicesWithUWBRanging.remove(deviceID)
 
         print("📍 UWB: Stopped ranging to \(deviceID.uuidString.prefix(8))")
@@ -167,6 +179,7 @@ class UWBManager: NSObject, UWBManaging {
     func stopRangingForAllDevices() {
         deviceTokens.removeAll()
         nearbyDevices.removeAll()
+        nearbyDistances.removeAll()
         nearbyObjects.removeAll()
         devicesWithUWBRanging.removeAll()
         for (_, niSession) in deviceToNISession {
@@ -234,22 +247,21 @@ extension UWBManager: NISessionDelegate {
 
                 self.nearbyObjects[deviceID] = object
                 let positionCategory = self.getPositionCategory(updatedObject: object)
-                
+
                 switch positionCategory {
                     case DevicePositionCategory.ApproxTouching:
                         nearbyDevices[deviceID] = DevicePositionCategory.ApproxTouching
                     case DevicePositionCategory.InRange:
                         nearbyDevices[deviceID] = DevicePositionCategory.InRange
-                        break
                     default:
                         nearbyDevices[deviceID] = DevicePositionCategory.OutOfRange
-                        break
-                    
                 }
 
                 if let distance = object.distance {
+                    nearbyDistances[deviceID] = distance
                     print("📏 UWB: UPDATE \(deviceID.uuidString.prefix(8)) - distance: \(String(format: "%.3f", distance))m")
                 } else {
+                    nearbyDistances.removeValue(forKey: deviceID)
                     print("⚠️ UWB: UPDATE \(deviceID.uuidString.prefix(8)) - NO DISTANCE DATA")
                 }
             }
@@ -266,6 +278,7 @@ extension UWBManager: NISessionDelegate {
 
                 self.nearbyObjects.removeValue(forKey: deviceID)
                 self.nearbyDevices.removeValue(forKey: deviceID)
+                self.nearbyDistances.removeValue(forKey: deviceID)
                 session.invalidate()
                 print("📍 UWB: Lost connection to \(deviceID.uuidString.prefix(8)), reason: \(reason.rawValue)")
             }
@@ -282,6 +295,7 @@ extension UWBManager: NISessionDelegate {
             deviceToNISession.removeValue(forKey: disconnectedDeviceID)
             nearbyObjects.removeValue(forKey: disconnectedDeviceID)
             nearbyDevices.removeValue(forKey: disconnectedDeviceID)
+            nearbyDistances.removeValue(forKey: disconnectedDeviceID)
             deviceTokens.removeValue(forKey: disconnectedDeviceID)
             devicesWithUWBRanging.remove(disconnectedDeviceID)
         }

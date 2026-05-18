@@ -69,7 +69,6 @@ class BluetoothManagerServiceImpl: NSObject, BluetoothManagerService {
 
     // Central-side readiness (keyed by peripheral.identifier)
     private var centralReceivedPeerToken: Set<UUID> = []
-    private var centralReceivedAck: Set<UUID> = []
 
     // Track connected centrals (peers who have connected to us)
 //    private var connectedCentrals: [UUID: CBCentral] = [:]
@@ -97,7 +96,6 @@ class BluetoothManagerServiceImpl: NSObject, BluetoothManagerService {
         }
         peripheralManager.stopAdvertising()
         centralReceivedPeerToken.removeAll()
-        centralReceivedAck.removeAll()
         print("🛑 Stopped advertising and scanning")
     }
     
@@ -471,9 +469,6 @@ extension BluetoothManagerServiceImpl: CBPeripheralDelegate {
                         print("⚠️ BLE Service: No UWB token available to send to \(peripheral.identifier.uuidString.prefix(8))")
                     }
                 }
-            } else if characteristic.uuid == tokenExchangeAckCharacteristicUUID {
-                print("📍 BLE Service: Found ACK characteristic for \(peripheral.identifier.uuidString.prefix(8)), subscribing to notifications")
-                peripheral.setNotifyValue(true, for: characteristic)
             } else if characteristic.uuid == messageCharacteristicUUID {
                 print("💬 BLE Service: Found message characteristic for \(peripheral.identifier.uuidString.prefix(8))")
             }
@@ -484,6 +479,9 @@ extension BluetoothManagerServiceImpl: CBPeripheralDelegate {
     
     func peripheral(_ peripheral: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
         guard self.hasStarted else { return }
+        print("📍 BLE Service: Services invalidated for \(peripheral.identifier.uuidString.prefix(8)), re-discovering")
+        // Re-discover services so the UWB token exchange can restart with fresh characteristics
+        peripheral.discoverServices([boopServiceUUID])
         Task { @MainActor in
             bleServiceDelegate?.didInvalidateService(peripheral.identifier, peripheral: peripheral)
         }
@@ -539,19 +537,12 @@ extension BluetoothManagerServiceImpl: CBPeripheralDelegate {
             }
             centralReceivedPeerToken.insert(peripheral.identifier)
             maybeStartRangingCentral(for: peripheral.identifier)
-        } else if characteristic.uuid == tokenExchangeAckCharacteristicUUID {
-            // Central received ACK - peer confirmed it has our token
-            print("📍 BLE Service: Central received ACK from \(peripheral.identifier.uuidString.prefix(8)) - peer has our token")
-            centralReceivedAck.insert(peripheral.identifier)
-            maybeStartRangingCentral(for: peripheral.identifier)
         }
     }
 
     private func maybeStartRangingCentral(for deviceID: UUID) {
-        guard centralReceivedPeerToken.contains(deviceID),
-              centralReceivedAck.contains(deviceID) else { return }
+        guard centralReceivedPeerToken.contains(deviceID) else { return }
         centralReceivedPeerToken.remove(deviceID)
-        centralReceivedAck.remove(deviceID)
         print("📍 BLE Service: Central-side token exchange complete for \(deviceID.uuidString.prefix(8)), starting ranging")
         Task { @MainActor in
             self.bleServiceDelegate?.didExchangeUWBToken(for: deviceID)

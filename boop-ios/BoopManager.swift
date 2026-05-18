@@ -14,6 +14,10 @@ class BoopManager: NSObject, ObservableObject {
 
     // MARK: - Published Properties
     @Published var latestBoopEvent: BoopEvent? = nil
+    @Published var nearbyDeviceNames: [UUID: String] = [:]
+    @Published var nearbyDistances: [UUID: Float] = [:]
+    @Published var nearbyDevicePositions: [UUID: DevicePositionCategory] = [:]
+    @Published var connectedPeripheralIDs: Set<UUID> = []
 
     /// Map peripheral UUIDs to sender's local UUIDs
     private var peripheralToSenderUUID: [UUID: UUID] = [:]
@@ -67,10 +71,17 @@ class BoopManager: NSObject, ObservableObject {
     private var previousPositions: [UUID: DevicePositionCategory] = [:]
 
     private func setupObservers() {
-        getOrCreateBluetoothManager().nearbyDevices
+        let btManager = getOrCreateBluetoothManager()
+        btManager.nearbyDevices
             .sink { [weak self] devices in
                 guard let self = self else { return }
                 self.processNearbyDevicesUpdate(devices)
+            }
+            .store(in: &cancellables)
+        btManager.nearbyDistances
+            .sink { [weak self] distances in
+                guard let self = self else { return }
+                self.nearbyDistances = distances
             }
             .store(in: &cancellables)
     }
@@ -83,6 +94,7 @@ class BoopManager: NSObject, ObservableObject {
         print("📊 BoopManager: nearbyDevices updated - count: \(deviceIDs.count)")
         print("📊 BoopManager: Device IDs: \(deviceIDs.map { $0.uuidString.prefix(8) })")
 
+        nearbyDevicePositions = devices
         checkNearbyDevicesForBoops(devices)
         cleanUpDisconnectedDevices(currentDeviceIDs: deviceIDs)
 
@@ -127,6 +139,10 @@ class BoopManager: NSObject, ObservableObject {
 
     func stop() {
         cancellables.removeAll()
+        nearbyDeviceNames.removeAll()
+        nearbyDistances.removeAll()
+        nearbyDevicePositions.removeAll()
+        connectedPeripheralIDs.removeAll()
         bluetoothManager?.stop()
     }
 
@@ -149,6 +165,7 @@ class BoopManager: NSObject, ObservableObject {
         let senderUUID = UUID()
 
         simulatedPeripheralUUID = peripheralUUID
+        nearbyDeviceNames[peripheralUUID] = displayName
         peripheralToSenderUUID[peripheralUUID] = senderUUID
 
         // Simulate receiving profile data so the contact can be created on disconnect
@@ -334,6 +351,7 @@ extension BoopManager: BoopDelegate {
 
         // Store mapping
         peripheralToSenderUUID[peripheralUUID] = senderUUID
+        nearbyDeviceNames[peripheralUUID] = displayName
 
         // Convert gradient color strings to Color objects
         let colors = gradientColors.compactMap { Contact.stringToColor($0) }
@@ -367,15 +385,19 @@ extension BoopManager: BoopDelegate {
 
         // Store mapping
         peripheralToSenderUUID[peripheralUUID] = senderUUID
+        nearbyDeviceNames[peripheralUUID] = displayName
     }
 
     func didDeviceConnect(peripheralUUID: UUID) {
         print("🔗 BoopManager: Device connected - \(peripheralUUID.uuidString.prefix(8))")
+        connectedPeripheralIDs.insert(peripheralUUID)
         deviceSessionStart[peripheralUUID] = Date()
     }
 
     func didDeviceDisconnect(peripheralUUID: UUID) {
         print("🔌 BoopManager: Device disconnected - \(peripheralUUID.uuidString.prefix(8))")
+        connectedPeripheralIDs.remove(peripheralUUID)
+        nearbyDeviceNames.removeValue(forKey: peripheralUUID)
         handleSessionEnd(peripheralUUID: peripheralUUID)
     }
     

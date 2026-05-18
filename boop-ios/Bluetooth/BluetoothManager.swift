@@ -7,7 +7,8 @@ import NearbyInteraction
 @MainActor
 class BluetoothManager: NSObject, ObservableObject {
     // MARK: - Published Properties
-    @Published var nearbyDevices: AnyPublisher<[UUID: DevicePositionCategory], Never>
+    let nearbyDevices: AnyPublisher<[UUID: DevicePositionCategory], Never>
+    let nearbyDistances: AnyPublisher<[UUID: Float], Never>
     @Published var connectionRequests: [UUID: ConnectionRequest] = [:]
     @Published var connectionResponses: [UUID: ConnectionResponse] = [:]
     
@@ -39,6 +40,7 @@ class BluetoothManager: NSObject, ObservableObject {
     init(boopDelegate: BoopDelegate? = nil) {
         self.uwbManager = UWBManager()
         self.nearbyDevices = self.uwbManager.nearbyDevicesPublisher
+        self.nearbyDistances = self.uwbManager.nearbyDistancesPublisher
         super.init()
 
         // Create service with UWB token
