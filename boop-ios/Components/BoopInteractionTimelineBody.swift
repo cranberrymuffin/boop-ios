@@ -52,6 +52,8 @@ struct InteractionDetailView: View {
     @State private var showPhotoSourceSheet = false
     @State private var showPhotoPicker = false
     @State private var showCamera = false
+    @State private var showPhotoViewer = false
+    @State private var photoViewerStartIndex = 0
 
     var body: some View {
         ScrollView {
@@ -113,10 +115,14 @@ struct InteractionDetailView: View {
             .presentationDragIndicator(.visible)
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItems, matching: .images)
-        .sheet(isPresented: $showCamera) {
+        .fullScreenCover(isPresented: $showCamera) {
             CameraPickerView { data in
                 interaction.imageData.append(data)
             }
+            .ignoresSafeArea()
+        }
+        .fullScreenCover(isPresented: $showPhotoViewer) {
+            PhotoViewerView(imageDataList: interaction.imageData, initialIndex: photoViewerStartIndex)
         }
         .task(id: selectedPhotoItems) {
             let items = selectedPhotoItems
@@ -160,12 +166,18 @@ struct InteractionDetailView: View {
                     ForEach(Array(interaction.imageData.enumerated()), id: \.offset) { index, data in
                         if let uiImage = UIImage(data: data) {
                             ZStack(alignment: .topTrailing) {
-                                Image(uiImage: uiImage)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 80, height: 80)
-                                    .clipped()
-                                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.md))
+                                Button {
+                                    photoViewerStartIndex = index
+                                    showPhotoViewer = true
+                                } label: {
+                                    Image(uiImage: uiImage)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 80, height: 80)
+                                        .clipped()
+                                        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.md))
+                                }
+                                .disabled(isEditing)
 
                                 if isEditing {
                                     Button {
@@ -227,6 +239,7 @@ private struct CameraPickerView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.sourceType = .camera
+        picker.showsCameraControls = true
         picker.delegate = context.coordinator
         return picker
     }
@@ -247,6 +260,50 @@ private struct CameraPickerView: UIViewControllerRepresentable {
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             parent.dismiss()
+        }
+    }
+}
+
+// MARK: - Photo Viewer
+
+private struct PhotoViewerView: View {
+    let imageDataList: [Data]
+    let initialIndex: Int
+    @Environment(\.dismiss) private var dismiss
+    @State private var currentIndex: Int
+
+    init(imageDataList: [Data], initialIndex: Int) {
+        self.imageDataList = imageDataList
+        self.initialIndex = initialIndex
+        self._currentIndex = State(initialValue: initialIndex)
+    }
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+
+            TabView(selection: $currentIndex) {
+                ForEach(Array(imageDataList.enumerated()), id: \.offset) { index, data in
+                    if let uiImage = UIImage(data: data) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFit()
+                            .tag(index)
+                    }
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: imageDataList.count > 1 ? .always : .never))
+            .ignoresSafeArea()
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(.white, Color.black.opacity(0.4))
+                    .padding(.top, Spacing.xl)
+                    .padding(.trailing, Spacing.lg)
+            }
         }
     }
 }
