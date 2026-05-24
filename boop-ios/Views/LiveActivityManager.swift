@@ -15,12 +15,27 @@ class LiveActivityManager {
     private var currentActivity: Activity<BoopLiveActivityAttributes>?
     private var currentInteractionID: UUID?
 
+    /// Reconnect to any live activity still running from a previous app session.
+    @available(iOS 16.1, *)
+    private func adoptExistingActivityIfNeeded() {
+        guard currentActivity == nil else { return }
+        if let running = Activity<BoopLiveActivityAttributes>.activities.first(where: {
+            $0.activityState == .active || $0.activityState == .stale
+        }) {
+            currentActivity = running
+            currentInteractionID = running.content.state.interactionID
+            print("♻️ LiveActivityManager: adopted existing activity id=\(running.id)")
+        }
+    }
+
     func startBoopLiveActivity(
         contactName: String,
         contactID: UUID,
         interactionID: UUID? = nil
     ) {
         if #available(iOS 16.1, *) {
+            adoptExistingActivityIfNeeded()
+
             let authInfo = ActivityAuthorizationInfo()
             print("📊 Activity Authorization - Enabled: \(authInfo.areActivitiesEnabled)")
             print("📊 Frequent pushes enabled: \(authInfo.frequentPushesEnabled)")
@@ -70,6 +85,7 @@ class LiveActivityManager {
     
     /// Refresh a live activity: update boopTime if the same interaction is still showing, otherwise start fresh.
     func refreshBoopLiveActivity(contactName: String, contactID: UUID, interactionID: UUID) {
+        if #available(iOS 16.1, *) { adoptExistingActivityIfNeeded() }
         if #available(iOS 16.1, *),
            let activity = currentActivity,
            currentInteractionID == interactionID,
