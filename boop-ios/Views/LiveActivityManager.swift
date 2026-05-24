@@ -13,6 +13,7 @@ import UserNotifications
 class LiveActivityManager {
     static let shared = LiveActivityManager()
     private var currentActivity: Activity<BoopLiveActivityAttributes>?
+    private var currentInteractionID: UUID?
 
     func startBoopLiveActivity(
         contactName: String,
@@ -55,6 +56,7 @@ class LiveActivityManager {
                     pushType: nil
                 )
                 currentActivity = activity
+                currentInteractionID = interactionID
                 print("✅ Live Activity started! id=\(activity.id) contact=\(contactName)")
             } catch {
                 print("❌ Failed to start Live Activity: \(error.localizedDescription)")
@@ -66,6 +68,18 @@ class LiveActivityManager {
         }
     }
     
+    /// Refresh a live activity: update boopTime if the same interaction is still showing, otherwise start fresh.
+    func refreshBoopLiveActivity(contactName: String, contactID: UUID, interactionID: UUID) {
+        if #available(iOS 16.1, *),
+           let activity = currentActivity,
+           currentInteractionID == interactionID,
+           activity.activityState == .active || activity.activityState == .stale {
+            Task { await updateBoopLiveActivity(contactName: contactName, contactID: contactID, interactionID: interactionID) }
+        } else {
+            startBoopLiveActivity(contactName: contactName, contactID: contactID, interactionID: interactionID)
+        }
+    }
+
     func updateBoopLiveActivity(
         contactName: String,
         contactID: UUID,

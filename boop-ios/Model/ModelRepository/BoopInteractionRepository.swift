@@ -57,6 +57,22 @@ final class BoopInteractionRepository {
         return interactions.contains { $0.contact?.uuid == contactUUID }
     }
 
+    /// Find the most recent interaction for a contact created on the current calendar day.
+    func findToday(forContactUUID contactUUID: UUID) -> BoopInteraction? {
+        guard let modelContext else { return nil }
+
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: Date())
+        guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else { return nil }
+
+        let descriptor = FetchDescriptor<BoopInteraction>(
+            predicate: #Predicate { $0.timestamp >= startOfDay && $0.timestamp < endOfDay },
+            sortBy: [SortDescriptor(\BoopInteraction.timestamp, order: .reverse)]
+        )
+        let interactions = (try? modelContext.fetch(descriptor)) ?? []
+        return interactions.first { $0.contact?.uuid == contactUUID }
+    }
+
     /// Find the most recent interaction for a contact (by contact UUID).
     func findLatest(forContactUUID contactUUID: UUID) -> BoopInteraction? {
         guard let modelContext else { return nil }
@@ -80,7 +96,7 @@ final class BoopInteractionRepository {
     ) {
         interaction.endTimestamp = endTimestamp
         if !pathCoordinates.isEmpty {
-            interaction.pathCoordinates = pathCoordinates
+            interaction.pathCoordinates = interaction.pathCoordinates + pathCoordinates
         }
         if let location, !location.isEmpty {
             interaction.location = location

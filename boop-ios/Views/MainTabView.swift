@@ -8,19 +8,21 @@ final class DeepLinkState {
 }
 
 struct MainTabView: View {
+    @EnvironmentObject var boopManager: BoopManager
     @State private var selectedTab = 0
+    @State private var homePath = NavigationPath()
     @State private var contactsPath = NavigationPath()
 
     @Query private var interactions: [BoopInteraction]
 
     private var hasHomeContent: Bool {
-        interactions.contains(where: \.hasContent)
+        !interactions.isEmpty
     }
 
     var body: some View {
         TabView(selection: $selectedTab) {
             if hasHomeContent {
-                HomeView()
+                HomeView(path: $homePath)
                     .tabItem { Label("Home", systemImage: "house.fill") }
                     .tag(0)
             }
@@ -40,6 +42,15 @@ struct MainTabView: View {
         .onChange(of: hasHomeContent) { _, hasContent in
             if !hasContent && selectedTab == 0 {
                 selectedTab = 1
+            }
+        }
+        .onChange(of: boopManager.latestBoopEvent?.id) { _, eventID in
+            guard eventID != nil, let interaction = boopManager.latestBoopInteraction else { return }
+            // Wait for the boop overlay animation to finish, then navigate to detail.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                homePath = NavigationPath()
+                homePath.append(interaction)
+                selectedTab = 0
             }
         }
         .onOpenURL { url in

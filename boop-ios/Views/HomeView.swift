@@ -5,7 +5,7 @@ struct HomeView: View {
     @Query(sort: \BoopInteraction.timestamp, order: .reverse)
     private var interactions: [BoopInteraction]
 
-    @State private var path = NavigationPath()
+    @Binding var path: NavigationPath
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -27,6 +27,6 @@ struct HomeView: View {
 }
 
 #Preview {
-    HomeView()
+    HomeView(path: .constant(NavigationPath()))
         .modelContainer(for: BoopInteraction.self, inMemory: true)
 }

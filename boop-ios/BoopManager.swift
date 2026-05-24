@@ -14,6 +14,7 @@ class BoopManager: NSObject, ObservableObject {
 
     // MARK: - Published Properties
     @Published var latestBoopEvent: BoopEvent? = nil
+    @Published var latestBoopInteraction: BoopInteraction? = nil
     @Published var nearbyDeviceNames: [UUID: String] = [:]
     @Published var nearbyDistances: [UUID: Float] = [:]
     @Published var nearbyDevicePositions: [UUID: DevicePositionCategory] = [:]
@@ -40,7 +41,6 @@ class BoopManager: NSObject, ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var lastBoopTime: [UUID: Date] = [:]
     private let boopCooldown: TimeInterval = 5.0
-    private let duplicateWindow: TimeInterval = 3
 
     private lazy var displayName: Task<String, Error> = {
         Task {
@@ -214,7 +214,7 @@ class BoopManager: NSObject, ObservableObject {
 
     // MARK: - Persistence
 
-    /// Handle a received boop: create contact + interaction (once per session), broadcast event.
+    /// Handle a received boop: find or create today's interaction, broadcast event.
     private func handleBoopReceived(boop: Boop, event: BoopEvent, peripheralUUID: UUID) {
         let contactRepo = ContactRepository.shared
 
@@ -226,19 +226,34 @@ class BoopManager: NSObject, ObservableObject {
             gradientColors: boop.gradientColors
         ) else { return }
 
-        // If this session already has an interaction, don't create another one.
-        if let existing = activeSessionInteraction[peripheralUUID] {
-            print("↩️ BoopManager: Session already has interaction \(existing.id) — skipping new creation")
-            return
-        }
-
         let interactionRepo = BoopInteractionRepository.shared
 
-        guard !interactionRepo.isDuplicate(contactUUID: boop.senderUUID, timestamp: event.timestamp, window: duplicateWindow) else {
-            print("⏭️ BoopManager: Skipping duplicate interaction for \(boop.senderUUID.uuidString.prefix(8))")
+        // Same BLE session already has an interaction — refresh live activity only.
+        if let existing = activeSessionInteraction[peripheralUUID] {
+            print("↩️ BoopManager: Session already has interaction \(existing.id) — refreshing live activity")
+            latestBoopInteraction = existing
+            LiveActivityManager.shared.refreshBoopLiveActivity(
+                contactName: boop.displayName,
+                contactID: boop.senderUUID,
+                interactionID: existing.id
+            )
             return
         }
 
+        // Reuse an existing interaction from today for this contact.
+        if let todayInteraction = interactionRepo.findToday(forContactUUID: boop.senderUUID) {
+            print("📅 BoopManager: Reusing today's interaction \(todayInteraction.id) for \(boop.senderUUID.uuidString.prefix(8))")
+            activeSessionInteraction[peripheralUUID] = todayInteraction
+            latestBoopInteraction = todayInteraction
+            LiveActivityManager.shared.refreshBoopLiveActivity(
+                contactName: boop.displayName,
+                contactID: boop.senderUUID,
+                interactionID: todayInteraction.id
+            )
+            return
+        }
+
+        // No interaction yet today — create one.
         let locationName = locationManager?.currentLocationName ?? ""
 
         guard let interaction = interactionRepo.create(
@@ -248,6 +263,7 @@ class BoopManager: NSObject, ObservableObject {
         ) else { return }
 
         activeSessionInteraction[peripheralUUID] = interaction
+        latestBoopInteraction = interaction
 
         LiveActivityManager.shared.startBoopLiveActivity(
             contactName: boop.displayName,
@@ -290,11 +306,6 @@ class BoopManager: NSObject, ObservableObject {
             ?? interactionRepo.findLatest(forContactUUID: senderUUID)
 
         if let existingInteraction {
-            guard existingInteraction.endTimestamp == nil else {
-                print("Boop Manager: Attempted to end a session that has already ended")
-                activeSessionInteraction.removeValue(forKey: peripheralUUID)
-                return
-            }
             // Enrich the existing boop with session data
             if existingInteraction.location.isEmpty, let locationManager {
                 Task {
