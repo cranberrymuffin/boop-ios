@@ -25,6 +25,8 @@ class BoopManager: NSObject, ObservableObject {
     // MARK: - Session Tracking
     /// When each peripheral's BLE session started
     private var deviceSessionStart: [UUID: Date] = [:]
+    /// The single interaction created for each active BLE session (peripheral UUID → interaction)
+    private var activeSessionInteraction: [UUID: BoopInteraction] = [:]
     /// Minimum session duration (seconds) to auto-create a boop on disconnect
     private let minimumSessionDuration: TimeInterval = 60 // 1 minute
     /// Devices currently within touching range — boop fires on separation
@@ -183,7 +185,7 @@ class BoopManager: NSObject, ObservableObject {
         let colors: [Color] = [.purple, .blue, .purple, .blue, .purple, .blue, .purple, .blue, .purple]
         let boop = Boop(senderUUID: senderUUID, displayName: displayName, birthday: nil, bio: nil, gradientColors: colors)
         let event = BoopEvent(boop: boop)
-        handleBoopReceived(boop: boop, event: event)
+        handleBoopReceived(boop: boop, event: event, peripheralUUID: peripheralUUID)
         latestBoopEvent = event
 
         // Start the session
@@ -212,15 +214,9 @@ class BoopManager: NSObject, ObservableObject {
 
     // MARK: - Persistence
 
-    /// Handle a received boop: create contact + interaction, broadcast event.
-    private func handleBoopReceived(boop: Boop, event: BoopEvent) {
-        let interactionRepo = BoopInteractionRepository.shared
+    /// Handle a received boop: create contact + interaction (once per session), broadcast event.
+    private func handleBoopReceived(boop: Boop, event: BoopEvent, peripheralUUID: UUID) {
         let contactRepo = ContactRepository.shared
-
-        guard !interactionRepo.isDuplicate(contactUUID: boop.senderUUID, timestamp: event.timestamp, window: duplicateWindow) else {
-            print("⏭️ BoopManager: Skipping duplicate interaction for \(boop.senderUUID.uuidString.prefix(8))")
-            return
-        }
 
         guard let contact = contactRepo.findOrCreate(
             uuid: boop.senderUUID,
@@ -230,6 +226,19 @@ class BoopManager: NSObject, ObservableObject {
             gradientColors: boop.gradientColors
         ) else { return }
 
+        // If this session already has an interaction, don't create another one.
+        if let existing = activeSessionInteraction[peripheralUUID] {
+            print("↩️ BoopManager: Session already has interaction \(existing.id) — skipping new creation")
+            return
+        }
+
+        let interactionRepo = BoopInteractionRepository.shared
+
+        guard !interactionRepo.isDuplicate(contactUUID: boop.senderUUID, timestamp: event.timestamp, window: duplicateWindow) else {
+            print("⏭️ BoopManager: Skipping duplicate interaction for \(boop.senderUUID.uuidString.prefix(8))")
+            return
+        }
+
         let locationName = locationManager?.currentLocationName ?? ""
 
         guard let interaction = interactionRepo.create(
@@ -237,6 +246,8 @@ class BoopManager: NSObject, ObservableObject {
             timestamp: event.timestamp,
             contact: contact
         ) else { return }
+
+        activeSessionInteraction[peripheralUUID] = interaction
 
         LiveActivityManager.shared.startBoopLiveActivity(
             contactName: boop.displayName,
@@ -274,10 +285,14 @@ class BoopManager: NSObject, ObservableObject {
             pathCoords = [coord]
         }
 
-        // Try to find an existing interaction created during this session (from a proximity boop)
-        if let existingInteraction = interactionRepo.findLatest(forContactUUID: senderUUID) {
+        // Use the interaction created at first boop this session, or fall back to latest
+        let existingInteraction = activeSessionInteraction[peripheralUUID]
+            ?? interactionRepo.findLatest(forContactUUID: senderUUID)
+
+        if let existingInteraction {
             guard existingInteraction.endTimestamp == nil else {
                 print("Boop Manager: Attempted to end a session that has already ended")
+                activeSessionInteraction.removeValue(forKey: peripheralUUID)
                 return
             }
             // Enrich the existing boop with session data
@@ -326,6 +341,7 @@ class BoopManager: NSObject, ObservableObject {
 
         // Clean up session state
         deviceSessionStart.removeValue(forKey: peripheralUUID)
+        activeSessionInteraction.removeValue(forKey: peripheralUUID)
     }
 
     // MARK: - BLE Messaging
@@ -375,7 +391,7 @@ extension BoopManager: BoopDelegate {
         let event = BoopEvent(boop: boop)
 
         // Persist the boop
-        handleBoopReceived(boop: boop, event: event)
+        handleBoopReceived(boop: boop, event: event, peripheralUUID: peripheralUUID)
 
         // Broadcast event for UI
         latestBoopEvent = event
@@ -406,6 +422,7 @@ extension BoopManager: BoopDelegate {
         print("🔗 BoopManager: Device connected - \(peripheralUUID.uuidString.prefix(8))")
         connectedPeripheralIDs.insert(peripheralUUID)
         deviceSessionStart[peripheralUUID] = Date()
+        activeSessionInteraction.removeValue(forKey: peripheralUUID)
     }
 
     func didDeviceDisconnect(peripheralUUID: UUID) {

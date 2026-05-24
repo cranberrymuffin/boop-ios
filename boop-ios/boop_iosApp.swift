@@ -62,6 +62,13 @@ struct boop_iosApp: App {
                     ModelContextProvider.shared.setModelContainer(container)
                 }
                 boopManager.setLocationManager(locationManager)
+
+                // One-time data migration: merge duplicate interactions per session
+                if !UserDefaults.standard.bool(forKey: "hasRunSessionMergeV2") {
+                    BoopInteractionRepository.shared.mergeSessionDuplicates()
+                    UserDefaults.standard.set(true, forKey: "hasRunSessionMergeV2")
+                }
+
                 let granted = await NotificationManager.shared.requestAuthorization()
                 if let container = sharedModelContainer {
                     let scheduler = NotificationScheduler(modelContainer: container)

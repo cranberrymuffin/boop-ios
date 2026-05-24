@@ -88,6 +88,73 @@ final class BoopInteractionRepository {
         save()
     }
 
+    // MARK: - Migration
+
+    /// One-time migration: merge interactions for the same contact on the same calendar day
+    /// into a single interaction (keeps earliest timestamp, latest endTimestamp, merged images).
+    func mergeSessionDuplicates() {
+        guard let modelContext else { return }
+
+        let descriptor = FetchDescriptor<BoopInteraction>(
+            sortBy: [SortDescriptor(\BoopInteraction.timestamp)]
+        )
+        guard let all = try? modelContext.fetch(descriptor) else { return }
+
+        // Group by contact UUID (skip interactions without a contact)
+        var byContact: [UUID: [BoopInteraction]] = [:]
+        for interaction in all {
+            guard let uuid = interaction.contact?.uuid else { continue }
+            byContact[uuid, default: []].append(interaction)
+        }
+
+        let calendar = Calendar.current
+
+        for (_, interactions) in byContact {
+            let sorted = interactions.sorted { $0.timestamp < $1.timestamp }
+
+            // Group consecutive interactions that share the same calendar day
+            var dayGroups: [[BoopInteraction]] = []
+            for interaction in sorted {
+                if let last = dayGroups.last?.first,
+                   calendar.isDate(interaction.timestamp, inSameDayAs: last.timestamp) {
+                    dayGroups[dayGroups.count - 1].append(interaction)
+                } else {
+                    dayGroups.append([interaction])
+                }
+            }
+
+            for group in dayGroups where group.count > 1 {
+                let primary = group[0]
+                let duplicates = group.dropFirst()
+
+                // Keep the latest endTimestamp
+                if let latestEnd = duplicates.compactMap(\.endTimestamp).max() {
+                    primary.endTimestamp = max(primary.endTimestamp ?? latestEnd, latestEnd)
+                }
+
+                // Merge image data (avoid exact duplicates)
+                for dup in duplicates {
+                    primary.imageData.append(contentsOf: dup.imageData)
+                }
+
+                // Keep the longest path
+                if let longestDup = duplicates.max(by: {
+                    ($0.pathCoordinatesData?.count ?? 0) < ($1.pathCoordinatesData?.count ?? 0)
+                }), (longestDup.pathCoordinatesData?.count ?? 0) > (primary.pathCoordinatesData?.count ?? 0) {
+                    primary.pathCoordinatesData = longestDup.pathCoordinatesData
+                }
+
+                // Delete duplicates
+                for dup in duplicates {
+                    dup.contact?.interactions.removeAll { $0.id == dup.id }
+                    modelContext.delete(dup)
+                }
+            }
+        }
+
+        save()
+    }
+
     // MARK: - Save
 
     /// Persist pending changes to the store.
