@@ -26,13 +26,14 @@ final class BoopInteraction {
     /// JSON-encoded array of PathCoordinate representing the path traveled at boop time.
     var pathCoordinatesData: Data?
     var notes: String?
+    var boopCount: Int = 1
 
     // Relationship to Contact
     var contact: Contact?
 
     var displayTitle: String { contact?.displayName ?? "Unknown" }
 
-    init(location: String, timestamp: Date, endTimestamp: Date? = Date().addingTimeInterval(2 * 60 * 60), imageData: [Data] = [], notes: String? = nil, contact: Contact? = nil, pathCoordinates: [CLLocationCoordinate2D] = []) {
+    init(location: String, timestamp: Date, endTimestamp: Date? = Date().addingTimeInterval(2 * 60 * 60), imageData: [Data] = [], notes: String? = nil, contact: Contact? = nil, pathCoordinates: [CLLocationCoordinate2D] = [], boopCount: Int = 1) {
         self.id = UUID()
         self.location = location
         self.timestamp = timestamp
@@ -41,6 +42,7 @@ final class BoopInteraction {
         self.notes = notes
         self.contact = contact
         self.pathCoordinatesData = Self.encode(pathCoordinates)
+        self.boopCount = boopCount
     }
 
     var hasContent: Bool { !imageData.isEmpty || !(notes ?? "").isEmpty || pathCoordinatesData != nil }

@@ -258,7 +258,8 @@ class BoopManager: NSObject, ObservableObject {
 
         // Reuse an existing interaction from today for this contact.
         if let todayInteraction = interactionRepo.findToday(forContactUUID: boop.senderUUID) {
-            print("📅 BoopManager: Reusing today's interaction \(todayInteraction.id) for \(boop.senderUUID.uuidString.prefix(8))")
+            interactionRepo.incrementBoopCount(todayInteraction)
+            print("📅 BoopManager: Reusing today's interaction \(todayInteraction.id) for \(boop.senderUUID.uuidString.prefix(8)) (boopCount: \(todayInteraction.boopCount))")
             activeSessionInteraction[peripheralUUID] = todayInteraction
             latestBoopInteraction = todayInteraction
             LiveActivityManager.shared.refreshBoopLiveActivity(

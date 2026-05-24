@@ -33,7 +33,8 @@ struct BoopInteractionTimelineBody: View {
                         avatarImages: [interaction.contact?.avatarData],
                         title: interaction.displayTitle,
                         staticLabel: interaction.location.isEmpty ? nil : interaction.location,
-                        timestamp: interaction.timestamp
+                        timestamp: interaction.timestamp,
+                        boopCount: interaction.boopCount
                     )
                 }
                 .id(interaction.id)

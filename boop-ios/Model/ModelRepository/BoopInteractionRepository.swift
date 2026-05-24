@@ -87,6 +87,12 @@ final class BoopInteractionRepository {
 
     // MARK: - Update
 
+    /// Increment the boop count on an existing interaction and save.
+    func incrementBoopCount(_ interaction: BoopInteraction) {
+        interaction.boopCount += 1
+        save()
+    }
+
     /// Enrich an existing interaction with session-end data.
     func enrichWithSessionData(
         _ interaction: BoopInteraction,

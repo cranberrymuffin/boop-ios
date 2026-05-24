@@ -8,6 +8,7 @@ struct BoopListRow: View {
     let title: String
     let staticLabel: String?
     let timestamp: Date?
+    var boopCount: Int? = nil
 
     var body: some View {
         HStack(spacing: Spacing.md) {
@@ -42,6 +43,17 @@ struct BoopListRow: View {
         if let timestamp {
             TimelineView(.periodic(from: .now, by: 60)) { _ in
                 HStack(spacing: 0) {
+                    if let count = boopCount {
+                        Image(systemName: "hand.tap.fill")
+                            .font(.subtitle)
+                            .foregroundColor(.textMuted)
+                        Text(" \(count)")
+                            .font(.subtitle)
+                            .foregroundColor(.textMuted)
+                        Text(" • ")
+                            .font(.subtitle)
+                            .foregroundColor(.textMuted)
+                    }
                     if let label = staticLabel, !label.isEmpty {
                         Text(label)
                             .font(.subtitle)

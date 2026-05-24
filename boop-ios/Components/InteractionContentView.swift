@@ -9,8 +9,16 @@ struct InteractionContentView<MapContent: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xl) {
             VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text("Boop with \(interaction.displayTitle)")
+                Text("Hang with \(interaction.displayTitle)")
                     .primaryTextStyle()
+
+                HStack(spacing: Spacing.xs) {
+                    Image(systemName: "hand.tap.fill")
+                        .font(.subtitle)
+                        .foregroundColor(.textMuted)
+                    Text("\(interaction.boopCount) boop\(interaction.boopCount == 1 ? "" : "s")")
+                        .subtitleStyle()
+                }
 
                 TimelineView(.periodic(from: .now, by: 60)) { _ in
                     HStack(spacing: Spacing.xs) {
