@@ -99,7 +99,11 @@ final class BoopInteractionRepository {
             interaction.pathCoordinates = interaction.pathCoordinates + pathCoordinates
         }
         if let location, !location.isEmpty {
-            interaction.location = location
+            if interaction.location.isEmpty {
+                interaction.location = location
+            } else if !interaction.location.hasSuffix(location) {
+                interaction.location += " → \(location)"
+            }
         }
         save()
     }

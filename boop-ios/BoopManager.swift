@@ -41,6 +41,7 @@ class BoopManager: NSObject, ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var lastBoopTime: [UUID: Date] = [:]
     private let boopCooldown: TimeInterval = 5.0
+    private var boopDetectionEnabled = false
 
     private lazy var displayName: Task<String, Error> = {
         Task {
@@ -99,8 +100,11 @@ class BoopManager: NSObject, ObservableObject {
         print("📊 BoopManager: Device IDs: \(deviceIDs.map { $0.uuidString.prefix(8) })")
 
         nearbyDevicePositions = devices
-        checkNearbyDevicesForBoops(devices)
-        cleanUpDisconnectedDevices(currentDeviceIDs: deviceIDs)
+
+        if boopDetectionEnabled {
+            checkNearbyDevicesForBoops(devices)
+            cleanUpDisconnectedDevices(currentDeviceIDs: deviceIDs)
+        }
 
         previousPositions = devices
         previousDevices = deviceIDs
@@ -150,13 +154,25 @@ class BoopManager: NSObject, ObservableObject {
     }
 
     func stop() {
+        disableBoopDetection()
         cancellables.removeAll()
         nearbyDeviceNames.removeAll()
         nearbyDistances.removeAll()
         nearbyDevicePositions.removeAll()
         connectedPeripheralIDs.removeAll()
-        devicesInTouchingRange.removeAll()
         bluetoothManager?.stop()
+    }
+
+    /// Enable boop detection — call when the Boop tab appears.
+    func enableBoopDetection() {
+        boopDetectionEnabled = true
+    }
+
+    /// Disable boop detection — call when the Boop tab disappears.
+    /// Clears touching-range state so stale positions don't fire a boop on re-enable.
+    func disableBoopDetection() {
+        boopDetectionEnabled = false
+        devicesInTouchingRange.removeAll()
     }
 
     // MARK: - Public Methods
