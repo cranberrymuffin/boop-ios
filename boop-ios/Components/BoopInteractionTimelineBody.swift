@@ -52,8 +52,8 @@ struct InteractionDetailView: View {
     @State private var showPhotoSourceSheet = false
     @State private var showPhotoPicker = false
     @State private var showCamera = false
-    @State private var showPhotoViewer = false
-    @State private var photoViewerStartIndex = 0
+    @State private var photoViewerItem: PhotoViewerItem? = nil
+    @State private var isGridExpanded = false
 
     var body: some View {
         ScrollView {
@@ -121,8 +121,8 @@ struct InteractionDetailView: View {
             }
             .ignoresSafeArea()
         }
-        .fullScreenCover(isPresented: $showPhotoViewer) {
-            PhotoViewerView(imageDataList: interaction.imageData, initialIndex: photoViewerStartIndex)
+        .fullScreenCover(item: $photoViewerItem) { item in
+            PhotoViewerView(imageDataList: interaction.imageData, initialIndex: item.index)
         }
         .task(id: selectedPhotoItems) {
             let items = selectedPhotoItems
@@ -141,6 +141,9 @@ struct InteractionDetailView: View {
 
     // MARK: - Photos Section
 
+    private let photoGridColumns = Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 3)
+    private let maxCollapsedPhotos = 9
+
     @ViewBuilder
     private var photosSection: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
@@ -148,51 +151,73 @@ struct InteractionDetailView: View {
                 .heading3Style()
                 .padding(.horizontal, Spacing.lg)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Spacing.sm) {
-                    Button {
-                        showPhotoSourceSheet = true
-                    } label: {
-                        RoundedRectangle(cornerRadius: CornerRadius.md)
-                            .fill(Color.formBackgroundInactive)
-                            .frame(width: 80, height: 80)
-                            .overlay {
-                                Image(systemName: "camera")
-                                    .font(.title2)
-                                    .foregroundColor(.textMuted)
+            let photos = interaction.imageData
+            let visiblePhotos = isGridExpanded ? photos : Array(photos.prefix(maxCollapsedPhotos))
+
+            LazyVGrid(columns: photoGridColumns, spacing: Spacing.sm) {
+                Button {
+                    showPhotoSourceSheet = true
+                } label: {
+                    RoundedRectangle(cornerRadius: CornerRadius.md)
+                        .fill(Color.formBackgroundInactive)
+                        .aspectRatio(1, contentMode: .fill)
+                        .overlay {
+                            Image(systemName: "camera")
+                                .font(.title2)
+                                .foregroundColor(.textMuted)
+                        }
+                }
+
+                ForEach(Array(visiblePhotos.enumerated()), id: \.offset) { index, data in
+                    if let uiImage = UIImage(data: data) {
+                        ZStack(alignment: .topTrailing) {
+                            Button {
+                                photoViewerItem = PhotoViewerItem(index: index)
+                            } label: {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(minWidth: 0, maxWidth: .infinity,
+                                           minHeight: 0, maxHeight: .infinity)
+                                    .clipped()
+                                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.md))
                             }
-                    }
+                            .disabled(isEditing)
 
-                    ForEach(Array(interaction.imageData.enumerated()), id: \.offset) { index, data in
-                        if let uiImage = UIImage(data: data) {
-                            ZStack(alignment: .topTrailing) {
+                            if isEditing {
                                 Button {
-                                    photoViewerStartIndex = index
-                                    showPhotoViewer = true
+                                    guard index < interaction.imageData.count else { return }
+                                    interaction.imageData.remove(at: index)
                                 } label: {
-                                    Image(uiImage: uiImage)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 80, height: 80)
-                                        .clipped()
-                                        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.md))
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.statusError)
+                                        .background(Circle().fill(Color.white))
                                 }
-                                .disabled(isEditing)
-
-                                if isEditing {
-                                    Button {
-                                        guard index < interaction.imageData.count else { return }
-                                        interaction.imageData.remove(at: index)
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .foregroundColor(.statusError)
-                                            .background(Circle().fill(Color.white))
-                                    }
-                                    .offset(x: 4, y: -4)
-                                }
+                                .offset(x: 4, y: -4)
                             }
                         }
+                        .aspectRatio(1, contentMode: .fill)
                     }
+                }
+
+            }
+            .padding(.horizontal, Spacing.lg)
+
+            if photos.count > maxCollapsedPhotos {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        isGridExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: Spacing.xs) {
+                        Text(isGridExpanded ? "Show less" : "Show \(photos.count - maxCollapsedPhotos) more")
+                            .font(.subtitle)
+                        Image(systemName: isGridExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundColor(.accentPrimary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Spacing.sm)
                 }
                 .padding(.horizontal, Spacing.lg)
             }
@@ -226,6 +251,11 @@ struct InteractionDetailView: View {
             }
         }
     }
+}
+
+private struct PhotoViewerItem: Identifiable {
+    let id = UUID()
+    let index: Int
 }
 
 // MARK: - Camera Picker

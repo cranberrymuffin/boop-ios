@@ -79,6 +79,7 @@ struct HomeFeedBody: View {
                                     .padding(Spacing.xs)
                             }
                         }
+                        .allowsHitTesting(false)
                     }
                 }
             }
