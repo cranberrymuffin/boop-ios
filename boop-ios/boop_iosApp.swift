@@ -66,6 +66,12 @@ struct boop_iosApp: App {
                 boopManager.setLocationManager(locationManager)
                 await supabaseManager.restoreSession()
 
+                // ModelContext is ready — sync profile if already logged in
+                if supabaseManager.session != nil,
+                   let contact = ContactRepository.shared.getOwnProfile() {
+                    await supabaseManager.syncProfile(contact)
+                }
+
                 // One-time data migration: merge duplicate interactions per session
                 if !UserDefaults.standard.bool(forKey: "hasRunSessionMergeV2") {
                     BoopInteractionRepository.shared.mergeSessionDuplicates()

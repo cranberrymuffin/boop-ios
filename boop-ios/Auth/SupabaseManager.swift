@@ -60,6 +60,8 @@ final class SupabaseManager: ObservableObject {
 
             if let contact = ContactRepository.shared.getOwnProfile() {
                 await syncProfile(contact)
+            } else {
+                print("[Supabase] getOwnProfile returned nil — ModelContext may not be ready yet")
             }
         } catch {
             authError = error.localizedDescription
@@ -80,10 +82,14 @@ final class SupabaseManager: ObservableObject {
 
     func syncProfile(_ contact: Contact) async {
         guard let userId = session?.user.id else { return }
+        print("[Supabase] syncProfile — userId: \(userId), avatarBytes: \(contact.avatarData?.count ?? 0)")
 
         var avatarURL: String? = nil
         if let avatarData = contact.avatarData {
             avatarURL = await uploadAvatar(data: avatarData, userId: userId)
+            print("[Supabase] avatar upload result: \(avatarURL ?? "nil")")
+        } else {
+            print("[Supabase] no avatarData on contact — skipping upload")
         }
 
         struct ProfileRow: Encodable {
@@ -152,7 +158,7 @@ final class SupabaseManager: ObservableObject {
     // MARK: - Private
 
     private func uploadAvatar(data: Data, userId: UUID) async -> String? {
-        let path = "\(userId.uuidString)/avatar.jpg"
+        let path = "\(userId.uuidString.lowercased())/avatar.jpg"
         do {
             _ = try await client.storage
                 .from("avatars")
@@ -163,6 +169,8 @@ final class SupabaseManager: ObservableObject {
                 .createSignedURL(path: path, expiresIn: 31_536_000)
             return url.absoluteString
         } catch {
+            print("[Supabase] avatar upload error: \(error)")
+            authError = "Avatar upload failed: \(error.localizedDescription)"
             return nil
         }
     }
