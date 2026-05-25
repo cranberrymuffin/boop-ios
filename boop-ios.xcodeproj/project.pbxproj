@@ -14,6 +14,7 @@
 		B9ADE1072F3AC2190026F623 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B9ADE1062F3AC2190026F623 /* WidgetKit.framework */; };
 		B9ADE1092F3AC2190026F623 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B9ADE1082F3AC2190026F623 /* SwiftUI.framework */; };
 		B9ADE11A2F3AC21A0026F623 /* BoopLiveActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B9ADE1052F3AC2190026F623 /* BoopLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		5C6341FC3A3D4127ABB75D36 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = CBFEBB55B2784D2FBB29EDEA /* Supabase */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -88,6 +89,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5C6341FC3A3D4127ABB75D36 /* Supabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -235,6 +237,7 @@
 			);
 			name = "boop-ios";
 			packageProductDependencies = (
+				CBFEBB55B2784D2FBB29EDEA /* Supabase */,
 			);
 			productName = "boop-ios";
 			productReference = B95BB9332EB42535000BE885 /* boop-ios.app */;
@@ -290,6 +293,7 @@
 			mainGroup = B95BB92A2EB42535000BE885;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				B0B89F3DEA7046E9B984451C /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B95BB9342EB42535000BE885 /* Products */;
@@ -482,7 +486,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"boop-ios/Preview Content\"";
-				DEVELOPMENT_TEAM = Z9WN384MPT;
+				DEVELOPMENT_TEAM = Q63385J885;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleURLTypes = "<array><dict><key>CFBundleTypeRole</key><string>Editor</string><key>CFBundleURLName</key><string>com.aparna.boop.boop-ios</string><key>CFBundleURLSchemes</key><array><string>boop</string></array></dict></array>";
@@ -503,7 +507,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.aparna.boop.boop-ios";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.bdettmer.boop.boop-ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -522,7 +526,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"boop-ios/Preview Content\"";
-				DEVELOPMENT_TEAM = Z9WN384MPT;
+				DEVELOPMENT_TEAM = Q63385J885;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This app uses Bluetooth to find and connect with nearby devices.";
@@ -542,7 +546,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.aparna.boop.boop-ios";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.bdettmer.boop.boop-ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -559,7 +563,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = Z9WN384MPT;
+				DEVELOPMENT_TEAM = Q63385J885;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BoopLiveActivity/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BoopLiveActivity;
@@ -571,7 +575,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.aparna.boop.boop-ios.BoopLiveActivity";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.bdettmer.boop.boop-ios.BoopLiveActivity";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -591,7 +595,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = Z9WN384MPT;
+				DEVELOPMENT_TEAM = Q63385J885;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BoopLiveActivity/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BoopLiveActivity;
@@ -603,7 +607,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.aparna.boop.boop-ios.BoopLiveActivity";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.bdettmer.boop.boop-ios.BoopLiveActivity";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -646,6 +650,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B0B89F3DEA7046E9B984451C /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CBFEBB55B2784D2FBB29EDEA /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0B89F3DEA7046E9B984451C /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = B95BB92B2EB42535000BE885 /* Project object */;
 }

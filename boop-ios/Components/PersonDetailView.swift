@@ -11,6 +11,9 @@ struct PersonDetailView<Route: Hashable>: View {
     var onEdit: (() -> Void)? = nil
     let historyRoute: Route
 
+    @EnvironmentObject private var supabaseManager: SupabaseManager
+    @State private var showLoginSheet = false
+
     var body: some View {
         ZStack {
             AnimatedMeshGradient(
@@ -66,6 +69,10 @@ struct PersonDetailView<Route: Hashable>: View {
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
 
+                if isOwnProfile {
+                    accountSection
+                }
+
                 BoopHistoryRow(count: boopCount, route: historyRoute)
             }
             .scrollContentBackground(.hidden)
@@ -76,6 +83,50 @@ struct PersonDetailView<Route: Hashable>: View {
                     Button("Edit") { onEdit?() }
                 }
             }
+        }
+        .sheet(isPresented: $showLoginSheet) {
+            LoginView()
+                .environmentObject(supabaseManager)
+        }
+    }
+
+    @ViewBuilder
+    private var accountSection: some View {
+        if let session = supabaseManager.session {
+            Section {
+                HStack(spacing: Spacing.sm) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundColor(.statusSuccess)
+                    Text(session.user.email ?? "Signed in with Apple")
+                        .font(.subtitle)
+                        .foregroundColor(.staticWhite)
+                }
+                .padding(.vertical, Spacing.xs)
+
+                Button {
+                    Task { await supabaseManager.signOut() }
+                } label: {
+                    HStack {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                        Text("Log out")
+                    }
+                    .foregroundColor(.statusError)
+                }
+            }
+            .listRowBackground(Color.clear)
+        } else {
+            Section {
+                Button {
+                    showLoginSheet = true
+                } label: {
+                    HStack {
+                        Image(systemName: "person.badge.shield.checkmark")
+                        Text("Login")
+                    }
+                    .foregroundColor(.accentPrimary)
+                }
+            }
+            .listRowBackground(Color.clear)
         }
     }
 }

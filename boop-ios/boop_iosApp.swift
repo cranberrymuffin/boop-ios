@@ -15,6 +15,7 @@ struct boop_iosApp: App {
     @State var sharedModelContainer: ModelContainer?
     @StateObject private var boopManager = BoopManager()
     @StateObject private var locationManager = LocationManager()
+    @StateObject private var supabaseManager = SupabaseManager.shared
     init() {
         self.schema = Schema([
                 Contact.self,
@@ -46,6 +47,7 @@ struct boop_iosApp: App {
                         .modelContainer(container)
                         .environmentObject(boopManager)
                         .environmentObject(locationManager)
+                        .environmentObject(supabaseManager)
                 } else {
                     VStack
                     {
@@ -62,6 +64,7 @@ struct boop_iosApp: App {
                     ModelContextProvider.shared.setModelContainer(container)
                 }
                 boopManager.setLocationManager(locationManager)
+                await supabaseManager.restoreSession()
 
                 // One-time data migration: merge duplicate interactions per session
                 if !UserDefaults.standard.bool(forKey: "hasRunSessionMergeV2") {

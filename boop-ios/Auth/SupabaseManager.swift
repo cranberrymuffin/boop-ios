@@ -1,0 +1,193 @@
+import Foundation
+import Supabase
+import AuthenticationServices
+import CryptoKit
+
+@MainActor
+final class SupabaseManager: ObservableObject {
+    static let shared = SupabaseManager()
+
+    let client = SupabaseClient(
+        supabaseURL: URL(string: "https://glbhvockgnfnuisqydgy.supabase.co")!,
+        supabaseKey: "sb_publishable_5nyexPefOq1LCY8Hm6ycoA_pv9Yk20m"
+    )
+
+    @Published var session: Session?
+    @Published var isLoading = false
+    @Published var authError: String?
+
+    private var pendingRawNonce: String?
+
+    private init() {}
+
+    func restoreSession() async {
+        do {
+            session = try await client.auth.session
+        } catch {
+            session = nil
+        }
+    }
+
+    /// Call from SignInWithAppleButton.onRequest — stores the raw nonce and returns the hashed one for Apple.
+    func prepareSignIn() -> String {
+        let raw = randomNonceString()
+        pendingRawNonce = raw
+        return sha256(raw)
+    }
+
+    /// Call from SignInWithAppleButton.onCompletion.
+    func handleAppleCompletion(_ result: Result<ASAuthorization, Error>) async {
+        isLoading = true
+        authError = nil
+        defer { isLoading = false }
+
+        do {
+            let authorization = try result.get()
+            guard
+                let appleCredential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                let tokenData = appleCredential.identityToken,
+                let idToken = String(data: tokenData, encoding: .utf8),
+                let rawNonce = pendingRawNonce
+            else {
+                authError = "Invalid Apple credential received."
+                return
+            }
+            pendingRawNonce = nil
+
+            session = try await client.auth.signInWithIdToken(
+                credentials: .init(provider: .apple, idToken: idToken, nonce: rawNonce)
+            )
+
+            if let contact = ContactRepository.shared.getOwnProfile() {
+                await syncProfile(contact)
+            }
+        } catch {
+            authError = error.localizedDescription
+        }
+    }
+
+    func signOut() async {
+        isLoading = true
+        authError = nil
+        defer { isLoading = false }
+        do {
+            try await client.auth.signOut()
+            session = nil
+        } catch {
+            authError = error.localizedDescription
+        }
+    }
+
+    func syncProfile(_ contact: Contact) async {
+        guard let userId = session?.user.id else { return }
+
+        var avatarURL: String? = nil
+        if let avatarData = contact.avatarData {
+            avatarURL = await uploadAvatar(data: avatarData, userId: userId)
+        }
+
+        struct ProfileRow: Encodable {
+            let id: UUID
+            let ble_device_uuid: UUID?
+            let name: String
+            let birthday: String?
+            let bio: String?
+            let avatar_url: String?
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+
+        let bleUUIDString = UserDefaults.standard.string(forKey: UserDefaultsKeys.localDeviceUUID)
+        let bleUUID = bleUUIDString.flatMap { UUID(uuidString: $0) }
+
+        let row = ProfileRow(
+            id: userId,
+            ble_device_uuid: bleUUID,
+            name: contact.displayName,
+            birthday: contact.birthday.map { formatter.string(from: $0) },
+            bio: contact.bio,
+            avatar_url: avatarURL
+        )
+
+        do {
+            try await client.from("profiles").upsert(row).execute()
+        } catch {
+            authError = error.localizedDescription
+        }
+    }
+
+    /// Records a boop connection to Supabase. Call after a boop event with the contact's BLE device UUID.
+    /// Requires the contact to have previously synced their profile (so their ble_device_uuid is on file).
+    func recordBoopConnection(withBLEDeviceUUID bleUUID: UUID) async {
+        guard let myUserId = session?.user.id else { return }
+
+        struct ProfileLookup: Decodable {
+            let id: UUID
+        }
+        struct Connection: Encodable {
+            let user_id: UUID
+            let contact_id: UUID
+        }
+
+        do {
+            let results: [ProfileLookup] = try await client
+                .from("profiles")
+                .select("id")
+                .eq("ble_device_uuid", value: bleUUID.uuidString)
+                .limit(1)
+                .execute()
+                .value
+
+            guard let contactUserId = results.first?.id else { return }
+
+            try await client.from("boop_connections")
+                .upsert(Connection(user_id: myUserId, contact_id: contactUserId))
+                .execute()
+        } catch {
+            // Best-effort — non-fatal if contact hasn't logged in yet
+        }
+    }
+
+    // MARK: - Private
+
+    private func uploadAvatar(data: Data, userId: UUID) async -> String? {
+        let path = "\(userId.uuidString)/avatar.jpg"
+        do {
+            _ = try await client.storage
+                .from("avatars")
+                .upload(path: path, file: data, options: FileOptions(contentType: "image/jpeg", upsert: true))
+            // Private bucket — use a signed URL (1 year expiry) instead of a public URL
+            let url = try await client.storage
+                .from("avatars")
+                .createSignedURL(path: path, expiresIn: 31_536_000)
+            return url.absoluteString
+        } catch {
+            return nil
+        }
+    }
+
+    private func randomNonceString(length: Int = 32) -> String {
+        let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        var result = ""
+        var remaining = length
+        while remaining > 0 {
+            var randoms = [UInt8](repeating: 0, count: 16)
+            SecRandomCopyBytes(kSecRandomDefault, randoms.count, &randoms)
+            for random in randoms {
+                guard remaining > 0 else { break }
+                if random < charset.count {
+                    result.append(charset[Int(random)])
+                    remaining -= 1
+                }
+            }
+        }
+        return result
+    }
+
+    private func sha256(_ input: String) -> String {
+        SHA256.hash(data: Data(input.utf8))
+            .compactMap { String(format: "%02x", $0) }
+            .joined()
+    }
+}
