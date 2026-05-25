@@ -63,6 +63,7 @@ final class SupabaseManager: ObservableObject {
             } else {
                 print("[Supabase] getOwnProfile returned nil — ModelContext may not be ready yet")
             }
+            await syncAllBoopConnections()
         } catch {
             authError = error.localizedDescription
         }
@@ -125,7 +126,7 @@ final class SupabaseManager: ObservableObject {
 
     /// Records a boop connection to Supabase. Call after a boop event with the contact's BLE device UUID.
     /// Requires the contact to have previously synced their profile (so their ble_device_uuid is on file).
-    func recordBoopConnection(withBLEDeviceUUID bleUUID: UUID) async {
+    func recordBoopConnection(withBLEDeviceUUID bleUUID: UUID, lastBoopedAt: Date = Date()) async {
         guard let myUserId = session?.user.id else { return }
 
         struct ProfileLookup: Decodable {
@@ -134,7 +135,10 @@ final class SupabaseManager: ObservableObject {
         struct Connection: Encodable {
             let user_id: UUID
             let contact_id: UUID
+            let last_booped_at: String
         }
+
+        let iso = ISO8601DateFormatter()
 
         do {
             let results: [ProfileLookup] = try await client
@@ -148,10 +152,62 @@ final class SupabaseManager: ObservableObject {
             guard let contactUserId = results.first?.id else { return }
 
             try await client.from("boop_connections")
-                .upsert(Connection(user_id: myUserId, contact_id: contactUserId))
+                .upsert(Connection(
+                    user_id: myUserId,
+                    contact_id: contactUserId,
+                    last_booped_at: iso.string(from: lastBoopedAt)
+                ))
                 .execute()
         } catch {
             // Best-effort — non-fatal if contact hasn't logged in yet
+        }
+    }
+
+    /// Syncs all locally stored boop contacts to Supabase boop_connections and fetches their avatars.
+    /// Call on login so existing offline boops are reflected in the remote table.
+    func syncAllBoopConnections() async {
+        guard session?.user.id != nil else { return }
+
+        let ownUUID = UserDefaults.standard.string(forKey: UserDefaultsKeys.localDeviceUUID)
+            .flatMap { UUID(uuidString: $0) }
+
+        let contacts = ContactRepository.shared.fetchAllContacts()
+
+        for contact in contacts {
+            // Skip the user's own profile
+            if let ownUUID, contact.uuid == ownUUID { continue }
+
+            let latestTimestamp = contact.interactions
+                .compactMap { $0.timestamp as Date? }
+                .max() ?? Date()
+
+            await recordBoopConnection(withBLEDeviceUUID: contact.uuid, lastBoopedAt: latestTimestamp)
+            await fetchAndSaveAvatar(forBLEDeviceUUID: contact.uuid, into: contact)
+        }
+    }
+
+    /// Downloads a contact's avatar from Supabase and saves it to the local Contact record.
+    func fetchAndSaveAvatar(forBLEDeviceUUID bleUUID: UUID, into contact: Contact) async {
+        struct ProfileAvatarLookup: Decodable {
+            let avatar_url: String?
+        }
+
+        do {
+            let results: [ProfileAvatarLookup] = try await client
+                .from("profiles")
+                .select("avatar_url")
+                .eq("ble_device_uuid", value: bleUUID.uuidString)
+                .limit(1)
+                .execute()
+                .value
+
+            guard let urlString = results.first?.avatar_url,
+                  let avatarURL = URL(string: urlString) else { return }
+
+            let (data, _) = try await URLSession.shared.data(from: avatarURL)
+            contact.avatarData = data
+        } catch {
+            // Best-effort — non-fatal
         }
     }
 

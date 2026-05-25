@@ -18,6 +18,12 @@ final class ContactRepository {
 
     // MARK: - Read
 
+    /// Fetch all contacts stored locally.
+    func fetchAllContacts() -> [Contact] {
+        guard let modelContext else { return [] }
+        return (try? modelContext.fetch(FetchDescriptor<Contact>())) ?? []
+    }
+
     /// Find an existing contact by its device UUID.
     func find(byUUID uuid: UUID) -> Contact? {
         guard let modelContext else { return nil }

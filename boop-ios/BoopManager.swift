@@ -242,6 +242,17 @@ class BoopManager: NSObject, ObservableObject {
             gradientColors: boop.gradientColors
         ) else { return }
 
+        Task {
+            await SupabaseManager.shared.recordBoopConnection(
+                withBLEDeviceUUID: boop.senderUUID,
+                lastBoopedAt: event.timestamp
+            )
+            await SupabaseManager.shared.fetchAndSaveAvatar(
+                forBLEDeviceUUID: boop.senderUUID,
+                into: contact
+            )
+        }
+
         let interactionRepo = BoopInteractionRepository.shared
 
         // Same BLE session already has an interaction — refresh live activity only.
@@ -405,6 +416,10 @@ class BoopManager: NSObject, ObservableObject {
 
 extension BoopManager: BoopDelegate {
     func didReceiveBoop(from senderUUID: UUID, peripheralUUID: UUID, displayName: String, birthday: Date?, bio: String?, gradientColors: [String]) {
+        guard boopDetectionEnabled else {
+            print("⏭️ BoopManager: Ignoring boop from \(peripheralUUID.uuidString.prefix(8)) - not on Boop screen")
+            return
+        }
         print("🎉 BoopManager: Received boop from sender: \(senderUUID.uuidString.prefix(8)), peripheral: \(peripheralUUID.uuidString.prefix(8)), displayName: '\(displayName)'")
 
         // Store mapping
