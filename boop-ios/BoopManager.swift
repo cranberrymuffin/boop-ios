@@ -255,9 +255,10 @@ class BoopManager: NSObject, ObservableObject {
 
         let interactionRepo = BoopInteractionRepository.shared
 
-        // Same BLE session already has an interaction — refresh live activity only.
+        // Same BLE session already has an interaction — increment count and refresh live activity.
         if let existing = activeSessionInteraction[peripheralUUID] {
-            print("↩️ BoopManager: Session already has interaction \(existing.id) — refreshing live activity")
+            interactionRepo.incrementBoopCount(existing)
+            print("↩️ BoopManager: Session already has interaction \(existing.id) — boopCount now \(existing.boopCount)")
             latestBoopInteraction = existing
             LiveActivityManager.shared.refreshBoopLiveActivity(
                 contactName: boop.displayName,
