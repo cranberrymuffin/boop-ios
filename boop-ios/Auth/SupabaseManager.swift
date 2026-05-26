@@ -201,9 +201,8 @@ final class SupabaseManager: ObservableObject {
             let id: UUID
         }
         struct Connection: Encodable {
-            let user_id: UUID
-            let contact_id: UUID
-            let last_booped_at: String
+            let participants: [UUID]
+            let last_seen: String
         }
 
         let iso = ISO8601DateFormatter()
@@ -217,17 +216,26 @@ final class SupabaseManager: ObservableObject {
                 .execute()
                 .value
 
-            guard let contactUserId = results.first?.id else { return }
+            guard let contactUserId = results.first?.id else {
+                print("[Supabase] recordBoopConnection — no profile found for BLE UUID \(bleUUID.uuidString.prefix(8)), skipping")
+                return
+            }
+
+            // Sort UUIDs so the array is order-independent — extends naturally to N participants
+            let participants = [myUserId, contactUserId].sorted { $0.uuidString < $1.uuidString }
 
             try await client.from("boop_connections")
-                .upsert(Connection(
-                    user_id: myUserId,
-                    contact_id: contactUserId,
-                    last_booped_at: iso.string(from: lastBoopedAt)
-                ))
+                .upsert(
+                    Connection(
+                        participants: participants,
+                        last_seen: iso.string(from: lastBoopedAt)
+                    ),
+                    onConflict: "participants"
+                )
                 .execute()
+            print("[Supabase] recordBoopConnection — upserted connection with \(contactUserId.uuidString.prefix(8))")
         } catch {
-            // Best-effort — non-fatal if contact hasn't logged in yet
+            print("[Supabase] recordBoopConnection — error: \(error)")
         }
     }
 
