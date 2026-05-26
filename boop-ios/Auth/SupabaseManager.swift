@@ -3,6 +3,11 @@ import Supabase
 import AuthenticationServices
 import CryptoKit
 
+enum SignUpResult {
+    case verificationRequired(email: String)
+    case signedIn
+}
+
 @MainActor
 final class SupabaseManager: ObservableObject {
     static let shared = SupabaseManager()
@@ -58,13 +63,9 @@ final class SupabaseManager: ObservableObject {
                 credentials: .init(provider: .apple, idToken: idToken, nonce: rawNonce)
             )
 
-            if let contact = ContactRepository.shared.getOwnProfile() {
-                await syncProfile(contact)
-            } else {
-                print("[Supabase] getOwnProfile returned nil — ModelContext may not be ready yet")
-            }
-            await syncAllBoopConnections()
+            await performPostAuthSync()
         } catch {
+            // Apple SDK errors are user-safe; bypass friendlyAuthMessage
             authError = error.localizedDescription
         }
     }
@@ -79,6 +80,73 @@ final class SupabaseManager: ObservableObject {
         } catch {
             authError = error.localizedDescription
         }
+    }
+
+    // MARK: - Email Auth
+
+    @discardableResult
+    func signUpWithEmail(_ email: String, password: String) async -> SignUpResult {
+        guard !isLoading else { return .verificationRequired(email: email) }
+        isLoading = true
+        authError = nil
+        defer { isLoading = false }
+
+        do {
+            let response = try await client.auth.signUp(
+                email: email,
+                password: password,
+                redirectTo: URL(string: "boop://auth/callback")
+            )
+            if let newSession = response.session {
+                // Email confirmation disabled at project level (defensive path)
+                session = newSession
+                print("[Supabase] signUpWithEmail result: signedIn")
+                await performPostAuthSync()
+                return .signedIn
+            } else {
+                print("[Supabase] signUpWithEmail result: verificationRequired")
+                return .verificationRequired(email: email)
+            }
+        } catch {
+            // Surface only network/transport errors; account-state errors swallowed (anti-enum)
+            if error is URLError {
+                authError = "Network error — please try again."
+            }
+            return .verificationRequired(email: email)
+        }
+    }
+
+    func signInWithEmail(_ email: String, password: String) async {
+        guard !isLoading else { return }
+        isLoading = true
+        authError = nil
+        defer { isLoading = false }
+
+        do {
+            session = try await client.auth.signIn(email: email, password: password)
+            print("[Supabase] signInWithEmail — outcome: success")
+            await performPostAuthSync()
+        } catch {
+            print("[Supabase] signInWithEmail — outcome: failed")
+            authError = friendlyAuthMessage(error)
+        }
+    }
+
+    func sendPasswordReset(for email: String) async {
+        guard !isLoading else { return }
+        isLoading = true
+        authError = nil
+        defer { isLoading = false }
+
+        do {
+            try await client.auth.resetPasswordForEmail(
+                email,
+                redirectTo: URL(string: "boop://auth/callback")
+            )
+        } catch {
+            // Swallow silently — anti-enumeration; view always shows confirmation
+        }
+        print("[Supabase] sendPasswordReset — sent")
     }
 
     func syncProfile(_ contact: Contact) async {
@@ -211,7 +279,46 @@ final class SupabaseManager: ObservableObject {
         }
     }
 
+    func handleDeepLink(_ url: URL) async {
+        do {
+            session = try await client.auth.session(from: url)
+            await performPostAuthSync()
+        } catch {
+            authError = friendlyAuthMessage(error)
+        }
+    }
+
     // MARK: - Private
+
+    private func performPostAuthSync() async {
+        if let contact = ContactRepository.shared.getOwnProfile() {
+            await syncProfile(contact)
+        } else {
+            print("[Supabase] performPostAuthSync — getOwnProfile returned nil")
+        }
+        await syncAllBoopConnections()
+    }
+
+    private func friendlyAuthMessage(_ error: Error) -> String {
+        if let authError = error as? AuthError {
+            switch authError.errorCode {
+            case .emailNotConfirmed:
+                return "Please verify your email — check your inbox."
+            case .invalidCredentials, .userNotFound:
+                return "Email or password is incorrect."
+            case .weakPassword:
+                return "Password is too weak. Please use at least 8 characters."
+            case .overRequestRateLimit, .overEmailSendRateLimit:
+                return "Too many attempts — please wait a moment and try again."
+            default:
+                break
+            }
+        }
+        if error is URLError {
+            return "Network error — please try again."
+        }
+        return "Something went wrong. Please try again."
+    }
 
     private func uploadAvatar(data: Data, userId: UUID) async -> String? {
         let path = "\(userId.uuidString.lowercased())/avatar.jpg"

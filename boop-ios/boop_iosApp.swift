@@ -57,6 +57,11 @@ struct boop_iosApp: App {
                     }
                 }
             }
+            .onOpenURL { url in
+                Task {
+                    await supabaseManager.handleDeepLink(url)
+                }
+            }
             .task {
                 await setModelContainer()
                 locationManager.requestPermissionIfNeeded()
