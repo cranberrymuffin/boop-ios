@@ -9,8 +9,17 @@ struct InteractionContentView<MapContent: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xl) {
             VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text("Hang with \(interaction.displayTitle)")
-                    .primaryTextStyle()
+                if interaction.contact?.avatarData != nil {
+                    HStack(spacing: Spacing.md) {
+                        OverlappingThumbnails(avatarImages: [interaction.contact?.avatarData])
+                            .frame(width: ThumbnailSize.single, height: ThumbnailSize.single)
+                        Text(interaction.displayTitle)
+                            .primaryTextStyle()
+                    }
+                } else {
+                    Text("Hang with \(interaction.displayTitle)")
+                        .primaryTextStyle()
+                }
 
                 HStack(spacing: Spacing.xs) {
                     Image(systemName: "hand.tap.fill")

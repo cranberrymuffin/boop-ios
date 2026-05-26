@@ -47,6 +47,9 @@ struct BoopInteractionTimelineBody: View {
 
 struct InteractionDetailView: View {
     @Bindable var interaction: BoopInteraction
+    @ObservedObject private var supabase = SupabaseManager.shared
+    @State private var remotePhotos: [RemotePhoto] = []
+    @State private var isLoadingRemotePhotos = false
     @State private var isEditing = false
     @State private var editNotes: String = ""
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
@@ -79,6 +82,7 @@ struct InteractionDetailView: View {
                 showCamera = true
             }
         }
+        .task { await fetchRemotePhotos() }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(isEditing ? "Done" : "Edit") {
@@ -118,12 +122,15 @@ struct InteractionDetailView: View {
         .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItems, matching: .images)
         .fullScreenCover(isPresented: $showCamera) {
             CameraPickerView { data in
-                interaction.imageData.append(data)
+                addPhoto(data: data)
             }
             .ignoresSafeArea()
         }
         .fullScreenCover(item: $photoViewerItem) { item in
-            PhotoViewerView(imageDataList: interaction.imageData, initialIndex: item.index)
+            PhotoViewerView(
+                imageDataList: interaction.imageData + remotePhotos.map { $0.data },
+                initialIndex: item.index
+            )
         }
         .task(id: selectedPhotoItems) {
             let items = selectedPhotoItems
@@ -133,7 +140,7 @@ struct InteractionDetailView: View {
                     group.addTask { try? await item.loadTransferable(type: Data.self) }
                 }
                 for await data in group {
-                    if let data { interaction.imageData.append(data) }
+                    if let data { addPhoto(data: data) }
                 }
             }
             selectedPhotoItems = []
@@ -148,17 +155,25 @@ struct InteractionDetailView: View {
     @ViewBuilder
     private var photosSection: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
-            Text("Photos")
-                .heading3Style()
-                .padding(.horizontal, Spacing.lg)
+            HStack {
+                Text("Photos")
+                    .heading3Style()
+                if isLoadingRemotePhotos {
+                    ProgressView().scaleEffect(0.7)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, Spacing.lg)
 
-            let photos = interaction.imageData
-            let visiblePhotos = isGridExpanded ? photos : Array(photos.prefix(maxCollapsedPhotos))
+            let localPhotos = interaction.imageData
+            let localMeta = interaction.photoMetadata
+            let totalCount = localPhotos.count + remotePhotos.count
+            let maxVisible = maxCollapsedPhotos
+            let localVisible = isGridExpanded ? localPhotos.count : min(localPhotos.count, maxVisible)
+            let remoteVisible = isGridExpanded ? remotePhotos : Array(remotePhotos.prefix(max(0, maxVisible - localPhotos.count)))
 
             LazyVGrid(columns: photoGridColumns, spacing: Spacing.sm) {
-                Button {
-                    showPhotoSourceSheet = true
-                } label: {
+                Button { showPhotoSourceSheet = true } label: {
                     RoundedRectangle(cornerRadius: CornerRadius.md)
                         .fill(Color.formBackgroundInactive)
                         .aspectRatio(1, contentMode: .fill)
@@ -169,8 +184,10 @@ struct InteractionDetailView: View {
                         }
                 }
 
-                ForEach(Array(visiblePhotos.enumerated()), id: \.offset) { index, data in
-                    if let uiImage = UIImage(data: data) {
+                // Local photos (yours)
+                ForEach(0..<localVisible, id: \.self) { index in
+                    if index < localPhotos.count, let uiImage = UIImage(data: localPhotos[index]) {
+                        let isPending = index < localMeta.count && localMeta[index].storagePath == nil && supabase.session != nil
                         ZStack(alignment: .topTrailing) {
                             Button {
                                 photoViewerItem = PhotoViewerItem(index: index)
@@ -186,32 +203,54 @@ struct InteractionDetailView: View {
                             .disabled(isEditing)
 
                             if isEditing {
-                                Button {
-                                    guard index < interaction.imageData.count else { return }
-                                    interaction.imageData.remove(at: index)
-                                } label: {
+                                Button { deleteLocalPhoto(at: index) } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .foregroundColor(.statusError)
                                         .background(Circle().fill(Color.white))
                                 }
                                 .offset(x: 4, y: -4)
+                            } else if isPending {
+                                Image(systemName: "arrow.up.circle.fill")
+                                    .foregroundStyle(.white, Color.accentPrimary)
+                                    .offset(x: 4, y: -4)
                             }
                         }
                         .aspectRatio(1, contentMode: .fill)
                     }
                 }
 
+                // Remote photos (theirs) — not deletable
+                ForEach(remoteVisible) { photo in
+                    if let uiImage = UIImage(data: photo.data) {
+                        ZStack(alignment: .topTrailing) {
+                            Button {
+                                let remoteIndex = remotePhotos.firstIndex(where: { $0.id == photo.id }) ?? 0
+                                photoViewerItem = PhotoViewerItem(index: localPhotos.count + remoteIndex)
+                            } label: {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(minWidth: 0, maxWidth: .infinity,
+                                           minHeight: 0, maxHeight: .infinity)
+                                    .clipped()
+                                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.md))
+                            }
+                            .disabled(isEditing)
+
+                            contactInitialBadge
+                        }
+                        .aspectRatio(1, contentMode: .fill)
+                    }
+                }
             }
             .padding(.horizontal, Spacing.lg)
 
-            if photos.count > maxCollapsedPhotos {
+            if totalCount > maxVisible {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        isGridExpanded.toggle()
-                    }
+                    withAnimation(.easeInOut(duration: 0.25)) { isGridExpanded.toggle() }
                 } label: {
                     HStack(spacing: Spacing.xs) {
-                        Text(isGridExpanded ? "Show less" : "Show \(photos.count - maxCollapsedPhotos) more")
+                        Text(isGridExpanded ? "Show less" : "Show \(totalCount - maxVisible) more")
                             .font(.subtitle)
                         Image(systemName: isGridExpanded ? "chevron.up" : "chevron.down")
                             .font(.system(size: 12, weight: .semibold))
@@ -223,6 +262,85 @@ struct InteractionDetailView: View {
                 .padding(.horizontal, Spacing.lg)
             }
         }
+    }
+
+    @ViewBuilder
+    private var contactInitialBadge: some View {
+        if let contact = interaction.contact, let initial = contact.displayName.first {
+            let color = contact.gradientColorsData.first.flatMap { Contact.stringToColor($0) } ?? Color.accentPrimary
+            Circle()
+                .fill(color)
+                .frame(width: 20, height: 20)
+                .overlay(
+                    Text(String(initial))
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white)
+                )
+                .offset(x: 4, y: -4)
+        }
+    }
+
+    private func addPhoto(data: Data) {
+        let index = interaction.imageData.count
+        interaction.imageData.append(data)
+        var meta = interaction.photoMetadata
+        meta.append(PhotoMeta(storagePath: nil, uploadedByUserID: supabase.session?.user.id.uuidString ?? "local"))
+        interaction.photoMetadata = meta
+
+        guard let bleUUID = interaction.contact?.uuid, supabase.session != nil else { return }
+        Task {
+            if let path = await SupabaseManager.shared.uploadInteractionPhoto(
+                data: data,
+                contactBLEUUID: bleUUID,
+                interactionDate: interaction.timestamp
+            ) {
+                var updatedMeta = interaction.photoMetadata
+                if index < updatedMeta.count {
+                    updatedMeta[index].storagePath = path
+                    interaction.photoMetadata = updatedMeta
+                }
+            }
+        }
+    }
+
+    private func deleteLocalPhoto(at index: Int) {
+        guard index < interaction.imageData.count else { return }
+        var meta = interaction.photoMetadata
+        let removedMeta = index < meta.count ? meta.remove(at: index) : nil
+        interaction.photoMetadata = meta
+        interaction.imageData.remove(at: index)
+
+        if let path = removedMeta?.storagePath {
+            Task { await SupabaseManager.shared.deleteInteractionPhoto(storagePath: path) }
+        }
+    }
+
+    private func fetchRemotePhotos() async {
+        guard let bleUUID = interaction.contact?.uuid, supabase.session != nil else { return }
+        let myID = supabase.session?.user.id
+        isLoadingRemotePhotos = true
+        defer { isLoadingRemotePhotos = false }
+
+        let rows = await SupabaseManager.shared.fetchInteractionPhotoRows(
+            contactBLEUUID: bleUUID,
+            interactionDate: interaction.timestamp
+        )
+        let localPaths = Set(interaction.photoMetadata.compactMap { $0.storagePath })
+        let theirRows = rows.filter { $0.uploadedBy != myID && !localPaths.contains($0.storagePath) }
+
+        var fetched: [RemotePhoto] = []
+        await withTaskGroup(of: RemotePhoto?.self) { group in
+            for row in theirRows {
+                group.addTask {
+                    guard let data = await SupabaseManager.shared.downloadPhoto(storagePath: row.storagePath) else { return nil }
+                    return RemotePhoto(id: row.id, data: data, storagePath: row.storagePath)
+                }
+            }
+            for await photo in group {
+                if let photo { fetched.append(photo) }
+            }
+        }
+        remotePhotos = fetched
     }
 
     // MARK: - Notes Section
@@ -257,6 +375,12 @@ struct InteractionDetailView: View {
 private struct PhotoViewerItem: Identifiable {
     let id = UUID()
     let index: Int
+}
+
+private struct RemotePhoto: Identifiable {
+    let id: UUID
+    let data: Data
+    let storagePath: String
 }
 
 // MARK: - Camera Picker
