@@ -3,6 +3,9 @@ default_platform(:ios)
 platform :ios do
   desc "Build and upload a new beta to TestFlight"
   lane :beta do
+    # Set up a temporary keychain for CI (unlocked, accessible to xcodebuild)
+    setup_ci
+
     # Load App Store Connect API key
     app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
