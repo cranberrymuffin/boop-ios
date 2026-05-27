@@ -32,7 +32,8 @@ jobs:
           APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_PAT }}
+          MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
         run: |
-          export MATCH_GIT_TOKEN=$(printf '%s' "${MATCH_GIT_TOKEN}" | tr -d '\n\r')
+          CLEAN_PAT=$(printf '%s' "${MATCH_GIT_PAT}" | tr -d '\n\r')
+          export MATCH_GIT_BASIC_AUTHORIZATION=$(printf 'cranberrymuffin:%s' "${CLEAN_PAT}" | base64)
           bundle exec fastlane beta
