@@ -73,6 +73,11 @@ final class BoopInteractionRepository {
         return interactions.first { $0.contact?.uuid == contactUUID }
     }
 
+    func fetchAll() -> [BoopInteraction] {
+        guard let modelContext else { return [] }
+        return (try? modelContext.fetch(FetchDescriptor<BoopInteraction>())) ?? []
+    }
+
     /// Find the most recent interaction for a contact (by contact UUID).
     func findLatest(forContactUUID contactUUID: UUID) -> BoopInteraction? {
         guard let modelContext else { return nil }

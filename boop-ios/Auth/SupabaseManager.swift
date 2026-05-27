@@ -296,6 +296,142 @@ final class SupabaseManager: ObservableObject {
         }
     }
 
+    // MARK: - Interaction Photos
+
+    struct InteractionPhotoRow: Decodable {
+        let id: UUID
+        let storagePath: String
+        let uploadedBy: UUID
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case storagePath = "storage_path"
+            case uploadedBy = "uploaded_by"
+        }
+    }
+
+    func resolveSupabaseUserID(forBLEDeviceUUID bleUUID: UUID) async -> UUID? {
+        struct ProfileLookup: Decodable { let id: UUID }
+        let results: [ProfileLookup]? = try? await client
+            .from("profiles")
+            .select("id")
+            .eq("ble_device_uuid", value: bleUUID.uuidString)
+            .limit(1)
+            .execute()
+            .value
+        return results?.first?.id
+    }
+
+    private func participantsForContact(_ contactBLEUUID: UUID) async -> [UUID]? {
+        guard let myID = session?.user.id,
+              let contactID = await resolveSupabaseUserID(forBLEDeviceUUID: contactBLEUUID) else { return nil }
+        return [myID, contactID].sorted { $0.uuidString < $1.uuidString }
+    }
+
+    func uploadInteractionPhoto(data: Data, contactBLEUUID: UUID, interactionDate: Date) async -> String? {
+        guard let myID = session?.user.id,
+              let participants = await participantsForContact(contactBLEUUID) else { return nil }
+
+        struct PhotoRow: Encodable {
+            let participants: [UUID]
+            let interaction_date: String
+            let uploaded_by: UUID
+            let storage_path: String
+        }
+
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withFullDate]
+        let path = "\(myID.uuidString.lowercased())/interactions/\(UUID().uuidString.lowercased()).jpg"
+
+        do {
+            _ = try await client.storage
+                .from("interaction-photos")
+                .upload(path: path, file: data, options: FileOptions(contentType: "image/jpeg", upsert: false))
+            try await client.from("interaction_photos")
+                .insert(PhotoRow(
+                    participants: participants,
+                    interaction_date: dateFormatter.string(from: interactionDate),
+                    uploaded_by: myID,
+                    storage_path: path
+                ))
+                .execute()
+            print("[Supabase] uploadInteractionPhoto — uploaded \(path)")
+            return path
+        } catch {
+            print("[Supabase] uploadInteractionPhoto — error: \(error)")
+            return nil
+        }
+    }
+
+    func fetchInteractionPhotoRows(contactBLEUUID: UUID, interactionDate: Date) async -> [InteractionPhotoRow] {
+        guard let participants = await participantsForContact(contactBLEUUID) else { return [] }
+
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withFullDate]
+        let participantsLiteral = "{\(participants.map { $0.uuidString.lowercased() }.joined(separator: ","))}"
+
+        do {
+            return try await client
+                .from("interaction_photos")
+                .select("id, storage_path, uploaded_by")
+                .filter("participants", operator: "eq", value: participantsLiteral)
+                .eq("interaction_date", value: dateFormatter.string(from: interactionDate))
+                .execute()
+                .value
+        } catch {
+            print("[Supabase] fetchInteractionPhotoRows — error: \(error)")
+            return []
+        }
+    }
+
+    func downloadPhoto(storagePath: String) async -> Data? {
+        do {
+            return try await client.storage
+                .from("interaction-photos")
+                .download(path: storagePath)
+        } catch {
+            print("[Supabase] downloadPhoto — error: \(error)")
+            return nil
+        }
+    }
+
+    func deleteInteractionPhoto(storagePath: String) async {
+        do {
+            try await client.from("interaction_photos")
+                .delete()
+                .eq("storage_path", value: storagePath)
+                .execute()
+            try await client.storage
+                .from("interaction-photos")
+                .remove(paths: [storagePath])
+            print("[Supabase] deleteInteractionPhoto — deleted \(storagePath)")
+        } catch {
+            print("[Supabase] deleteInteractionPhoto — error: \(error)")
+        }
+    }
+
+    func syncPendingPhotoUploads() async {
+        guard let myID = session?.user.id else { return }
+        let myIDString = myID.uuidString
+        for interaction in BoopInteractionRepository.shared.fetchAll() {
+            guard let contactBLEUUID = interaction.contact?.uuid else { continue }
+            var metadata = interaction.photoMetadata
+            var changed = false
+            for i in metadata.indices where metadata[i].storagePath == nil && metadata[i].uploadedByUserID == myIDString {
+                guard i < interaction.imageData.count else { continue }
+                if let path = await uploadInteractionPhoto(
+                    data: interaction.imageData[i],
+                    contactBLEUUID: contactBLEUUID,
+                    interactionDate: interaction.timestamp
+                ) {
+                    metadata[i].storagePath = path
+                    changed = true
+                }
+            }
+            if changed { interaction.photoMetadata = metadata }
+        }
+    }
+
     // MARK: - Private
 
     private func performPostAuthSync() async {
@@ -305,6 +441,7 @@ final class SupabaseManager: ObservableObject {
             print("[Supabase] performPostAuthSync — getOwnProfile returned nil")
         }
         await syncAllBoopConnections()
+        await syncPendingPhotoUploads()
     }
 
     private func friendlyAuthMessage(_ error: Error) -> String {

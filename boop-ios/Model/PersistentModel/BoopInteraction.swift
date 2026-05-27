@@ -16,13 +16,20 @@ struct PathCoordinate: Codable {
     let longitude: Double
 }
 
+struct PhotoMeta: Codable {
+    var storagePath: String?       // nil = pending upload
+    let uploadedByUserID: String   // Supabase auth UUID string
+}
+
 @Model
 final class BoopInteraction {
     var id: UUID
     var location: String
     var timestamp: Date
     var endTimestamp: Date? // optional end time for interactions that span a duration
-    var imageData: [Data] // Use Data for images
+    var imageData: [Data]
+    /// JSON-encoded array of PhotoMeta, parallel to imageData — tracks upload state per photo.
+    var photoMetadataData: Data?
     /// JSON-encoded array of PathCoordinate representing the path traveled at boop time.
     var pathCoordinatesData: Data?
     var notes: String?
@@ -49,6 +56,11 @@ final class BoopInteraction {
 
     var thumbnailCount: Int {
         contact != nil ? 1 : 0
+    }
+
+    var photoMetadata: [PhotoMeta] {
+        get { photoMetadataData.flatMap { try? JSONDecoder().decode([PhotoMeta].self, from: $0) } ?? [] }
+        set { photoMetadataData = try? JSONEncoder().encode(newValue) }
     }
 
     /// Decoded path coordinates for map display.
