@@ -1,0 +1,40 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Build and upload a new beta to TestFlight"
+  lane :beta do
+    # Load App Store Connect API key
+    app_store_connect_api_key(
+      key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
+      issuer_id: ENV["APP_STORE_CONNECT_API_KEY_ISSUER_ID"],
+      key_content: ENV["APP_STORE_CONNECT_API_KEY_CONTENT"],
+      is_key_content_base64: true,
+      in_house: false
+    )
+
+    # Sync code signing certs and profiles (readonly in CI)
+    match(type: "appstore")
+
+    # Bump build number to latest TestFlight build + 1
+    latest = latest_testflight_build_number(app_identifier: "ios.boop")
+    increment_build_number(
+      build_number: latest + 1,
+      xcodeproj: "boop-ios.xcodeproj"
+    )
+
+    # Build archive
+    build_app(
+      scheme: "boop-ios",
+      project: "boop-ios.xcodeproj",
+      configuration: "Release",
+      export_method: "app-store",
+      output_directory: "./build",
+      output_name: "boop-ios.ipa"
+    )
+
+    # Upload to TestFlight (no auto-release)
+    upload_to_testflight(
+      skip_waiting_for_build_processing: true
+    )
+  end
+end
