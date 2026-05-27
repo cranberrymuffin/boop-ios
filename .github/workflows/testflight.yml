@@ -26,14 +26,22 @@ jobs:
       - name: Install Fastlane
         run: bundle install
 
+      - name: Set up SSH key for Match
+        env:
+          MATCH_SSH_PRIVATE_KEY: ${{ secrets.MATCH_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${MATCH_SSH_PRIVATE_KEY}" > ~/.ssh/match_deploy
+          chmod 600 ~/.ssh/match_deploy
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          echo "Host github.com
+            IdentityFile ~/.ssh/match_deploy
+            StrictHostKeyChecking no" >> ~/.ssh/config
+
       - name: Run Fastlane beta lane
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
-        run: |
-          CLEAN_PAT=$(printf '%s' "${MATCH_GIT_PAT}" | tr -d '\n\r')
-          export MATCH_GIT_BASIC_AUTHORIZATION=$(printf 'cranberrymuffin:%s' "${CLEAN_PAT}" | base64)
-          bundle exec fastlane beta
+        run: bundle exec fastlane beta

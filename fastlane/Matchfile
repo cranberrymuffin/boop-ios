@@ -1,4 +1,4 @@
-git_url "https://github.com/cranberrymuffin/boop-certs"
+git_url "git@github.com:cranberrymuffin/boop-certs.git"
 storage_mode "git"
 type "appstore"
 app_identifier ["ios.boop", "ios.boop.BoopLiveActivity"]
