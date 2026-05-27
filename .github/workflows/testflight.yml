@@ -31,7 +31,7 @@ jobs:
           MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
         run: |
           git config --global credential.helper store
-          echo "https://cranberrymuffin:${MATCH_GIT_PAT}@github.com" >> ~/.git-credentials
+          printf 'https://cranberrymuffin:%s@github.com\n' "$(echo -n "${MATCH_GIT_PAT}")" >> ~/.git-credentials
 
       - name: Run Fastlane beta lane
         env:
