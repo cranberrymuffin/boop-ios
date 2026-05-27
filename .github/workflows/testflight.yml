@@ -30,8 +30,7 @@ jobs:
         env:
           MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
         run: |
-          git config --global credential.helper store
-          printf 'https://cranberrymuffin:%s@github.com\n' "$(echo -n "${MATCH_GIT_PAT}")" >> ~/.git-credentials
+          git config --global url."https://cranberrymuffin:${MATCH_GIT_PAT}@github.com/cranberrymuffin/boop-certs".insteadOf "https://github.com/cranberrymuffin/boop-certs"
 
       - name: Run Fastlane beta lane
         env:
