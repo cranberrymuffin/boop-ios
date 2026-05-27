@@ -15,6 +15,24 @@ platform :ios do
     # Sync code signing certs and profiles (readonly in CI)
     match(type: "appstore")
 
+    # Wire provisioning profiles to each target
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path: "boop-ios.xcodeproj",
+      team_id: "P3PR8G7GB9",
+      targets: ["boop-ios"],
+      code_sign_identity: "iPhone Distribution",
+      profile_name: "match AppStore ios.boop"
+    )
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path: "boop-ios.xcodeproj",
+      team_id: "P3PR8G7GB9",
+      targets: ["BoopLiveActivityExtension"],
+      code_sign_identity: "iPhone Distribution",
+      profile_name: "match AppStore ios.boop.BoopLiveActivity"
+    )
+
     # Bump build number to latest TestFlight build + 1
     latest = latest_testflight_build_number(app_identifier: "ios.boop")
     increment_build_number(
