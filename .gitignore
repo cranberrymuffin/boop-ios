@@ -2,3 +2,5 @@
 boop-ios/.claude/settings.local.json
 .claude/settings.local.json
 .idea
+vendor/bundle
+.bundle
