@@ -26,6 +26,13 @@ jobs:
       - name: Install Fastlane
         run: bundle install
 
+      - name: Configure git credentials for Match
+        env:
+          MATCH_GIT_PAT: ${{ secrets.MATCH_GIT_PAT }}
+        run: |
+          git config --global credential.helper store
+          echo "https://cranberrymuffin:${MATCH_GIT_PAT}@github.com" >> ~/.git-credentials
+
       - name: Run Fastlane beta lane
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
@@ -33,5 +40,4 @@ jobs:
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-          MATCH_GIT_BASIC_AUTH: ${{ secrets.MATCH_GIT_BASIC_AUTH }}
         run: bundle exec fastlane beta
