@@ -15,8 +15,12 @@ platform :ios do
       in_house: false
     )
 
-    # Sync code signing certs and profiles (readonly in CI)
-    match(type: "appstore")
+    # Sync code signing certs and profiles into the CI keychain
+    match(
+      type: "appstore",
+      keychain_name: "fastlane_tmp_keychain",
+      keychain_password: ""
+    )
 
     # Wire provisioning profiles to each target
     update_code_signing_settings(
