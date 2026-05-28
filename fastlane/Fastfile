@@ -33,17 +33,17 @@ platform :ios do
     update_code_signing_settings(
       use_automatic_signing: false,
       path: "boop-ios.xcodeproj",
-      team_id: "P3PR8G7GB9",
+      team_id: "Z9WN384MPT",
       targets: ["boop-ios"],
-      code_sign_identity: "iPhone Distribution",
+      code_sign_identity: "Apple Distribution",
       profile_name: "match AppStore ios.boop"
     )
     update_code_signing_settings(
       use_automatic_signing: false,
       path: "boop-ios.xcodeproj",
-      team_id: "P3PR8G7GB9",
+      team_id: "Z9WN384MPT",
       targets: ["BoopLiveActivityExtension"],
-      code_sign_identity: "iPhone Distribution",
+      code_sign_identity: "Apple Distribution",
       profile_name: "match AppStore ios.boop.BoopLiveActivity"
     )
 
