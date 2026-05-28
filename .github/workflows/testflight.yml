@@ -21,7 +21,9 @@ jobs:
           sudo xcodebuild -runFirstLaunch
 
       - name: Download iOS Platform
-        run: xcodebuild -downloadPlatform iOS
+        run: |
+          xcrun simctl list runtimes
+          xcodebuild -downloadPlatform iOS
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
