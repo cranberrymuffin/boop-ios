@@ -3,8 +3,15 @@ default_platform(:ios)
 platform :ios do
   desc "Build and upload a new beta to TestFlight"
   lane :beta do
-    # Set up a temporary keychain for CI (unlocked, accessible to xcodebuild)
-    setup_ci
+    # Create a CI keychain with a known password so xcodebuild can access certs
+    create_keychain(
+      name: "boop_ci.keychain",
+      password: "boop_ci_password",
+      default_keychain: true,
+      unlock: true,
+      timeout: 3600,
+      lock_when_sleeps: false
+    )
 
     # Load App Store Connect API key
     app_store_connect_api_key(
@@ -18,8 +25,8 @@ platform :ios do
     # Sync code signing certs and profiles into the CI keychain
     match(
       type: "appstore",
-      keychain_name: "fastlane_tmp_keychain",
-      keychain_password: ""
+      keychain_name: "boop_ci.keychain",
+      keychain_password: "boop_ci_password"
     )
 
     # Wire provisioning profiles to each target
