@@ -50,6 +50,8 @@ jobs:
     if: needs.check-for-changes.outputs.should_run == 'true'
     runs-on: macos-15
     timeout-minutes: 90
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -102,12 +104,15 @@ jobs:
         run: bundle exec fastlane setup_signing
 
       - name: Bump Build Number
+        id: bump
         if: github.event_name != 'pull_request'
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
-        run: bundle exec fastlane bump_version
+        run: |
+          bundle exec fastlane bump_version
+          echo "build_number=$(agvtool what-version -terse)" >> $GITHUB_OUTPUT
 
       - name: Build App
         env:
@@ -122,3 +127,18 @@ jobs:
           APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
         run: bundle exec fastlane upload_beta
+
+      - name: Create GitHub Release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BUILD="${{ steps.bump.outputs.build_number }}"
+          TAG="testflight/$BUILD"
+          git config user.email "ci@github.com"
+          git config user.name "GitHub Actions"
+          git tag "$TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" \
+            --title "TestFlight Build $BUILD" \
+            --generate-notes
