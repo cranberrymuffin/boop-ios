@@ -20,6 +20,9 @@ jobs:
           sudo xcodebuild -license accept
           sudo xcodebuild -runFirstLaunch
 
+      - name: Download iOS Platform
+        run: xcodebuild -downloadPlatform iOS
+
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
