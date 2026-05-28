@@ -1,9 +1,18 @@
 default_platform(:ios)
 
 platform :ios do
-  desc "Build and upload a new beta to TestFlight"
-  lane :beta do
-    # Create a CI keychain with a known password so xcodebuild can access certs
+  private_lane :load_asc_key do
+    app_store_connect_api_key(
+      key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
+      issuer_id: ENV["APP_STORE_CONNECT_API_KEY_ISSUER_ID"],
+      key_content: ENV["APP_STORE_CONNECT_API_KEY_CONTENT"],
+      is_key_content_base64: true,
+      in_house: false
+    )
+  end
+
+  desc "Create keychain, fetch certs/profiles via match, and configure code signing"
+  lane :setup_signing do
     create_keychain(
       name: "boop_ci.keychain",
       password: "boop_ci_password",
@@ -12,24 +21,12 @@ platform :ios do
       timeout: 3600,
       lock_when_sleeps: false
     )
-
-    # Load App Store Connect API key
-    app_store_connect_api_key(
-      key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
-      issuer_id: ENV["APP_STORE_CONNECT_API_KEY_ISSUER_ID"],
-      key_content: ENV["APP_STORE_CONNECT_API_KEY_CONTENT"],
-      is_key_content_base64: true,
-      in_house: false
-    )
-
-    # Sync code signing certs and profiles into the CI keychain
+    load_asc_key
     match(
       type: "appstore",
       keychain_name: "boop_ci.keychain",
       keychain_password: "boop_ci_password"
     )
-
-    # Wire provisioning profiles to each target
     update_code_signing_settings(
       use_automatic_signing: false,
       path: "boop-ios.xcodeproj",
@@ -46,15 +43,20 @@ platform :ios do
       code_sign_identity: "Apple Distribution",
       profile_name: "match AppStore ios.boop.BoopLiveActivity"
     )
+  end
 
-    # Bump build number to latest TestFlight build + 1
+  desc "Bump build number to latest TestFlight build + 1"
+  lane :bump_version do
+    load_asc_key
     latest = latest_testflight_build_number(app_identifier: "ios.boop")
     increment_build_number(
       build_number: latest + 1,
       xcodeproj: "boop-ios.xcodeproj"
     )
+  end
 
-    # Build archive
+  desc "Build and archive the app"
+  lane :build_ipa do
     build_app(
       scheme: "boop-ios",
       project: "boop-ios.xcodeproj",
@@ -63,10 +65,22 @@ platform :ios do
       output_directory: "./build",
       output_name: "boop-ios.ipa"
     )
+  end
 
-    # Upload to TestFlight (no auto-release)
+  desc "Upload the built IPA to TestFlight"
+  lane :upload_beta do
+    load_asc_key
     upload_to_testflight(
+      ipa: "./build/boop-ios.ipa",
       skip_waiting_for_build_processing: true
     )
+  end
+
+  desc "Build and upload a new beta to TestFlight"
+  lane :beta do
+    setup_signing
+    bump_version
+    build_ipa
+    upload_beta
   end
 end
