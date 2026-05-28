@@ -2,5 +2,5 @@ git_url "git@github.com:cranberrymuffin/boop-certs.git"
 storage_mode "git"
 type "appstore"
 app_identifier ["ios.boop", "ios.boop.BoopLiveActivity"]
-team_id "P3PR8G7GB9"
+team_id "Z9WN384MPT"
 readonly true
