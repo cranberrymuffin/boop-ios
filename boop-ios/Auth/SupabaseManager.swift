@@ -262,6 +262,67 @@ final class SupabaseManager: ObservableObject {
         }
     }
 
+    /// Fetches all boop connections from Supabase and restores the corresponding Contact records locally.
+    /// Call on login to recover contacts after reinstall or on a new device.
+    func restoreContacts() async {
+        guard let userId = session?.user.id else { return }
+
+        struct ConnectionRow: Decodable {
+            let participants: [UUID]
+        }
+        struct RemoteContact: Decodable {
+            let ble_device_uuid: UUID?
+            let name: String
+            let birthday: String?
+            let bio: String?
+            let avatar_url: String?
+        }
+
+        do {
+            let connections: [ConnectionRow] = try await client
+                .from("boop_connections")
+                .select("participants")
+                .filter("participants", operator: "cs", value: "{\(userId.uuidString.lowercased())}")
+                .execute()
+                .value
+
+            var restoredCount = 0
+            for connection in connections {
+                guard let otherUserId = connection.participants.first(where: { $0 != userId }) else { continue }
+
+                let profiles: [RemoteContact] = try await client
+                    .from("profiles")
+                    .select("ble_device_uuid, name, birthday, bio, avatar_url")
+                    .eq("id", value: otherUserId.uuidString)
+                    .limit(1)
+                    .execute()
+                    .value
+
+                guard let profile = profiles.first, let bleUUID = profile.ble_device_uuid else { continue }
+
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withFullDate]
+                let birthday = profile.birthday.flatMap { formatter.date(from: $0) }
+
+                guard let contact = ContactRepository.shared.findOrCreate(
+                    uuid: bleUUID,
+                    displayName: profile.name,
+                    birthday: birthday,
+                    bio: profile.bio,
+                    gradientColors: []
+                ) else { continue }
+
+                if let urlString = profile.avatar_url, let url = URL(string: urlString) {
+                    contact.avatarData = try? await URLSession.shared.data(from: url).0
+                }
+                restoredCount += 1
+            }
+            print("[Supabase] restoreContacts — restored \(restoredCount) contact(s)")
+        } catch {
+            print("[Supabase] restoreContacts — error: \(error)")
+        }
+    }
+
     /// Downloads a contact's avatar from Supabase and saves it to the local Contact record.
     func fetchAndSaveAvatar(forBLEDeviceUUID bleUUID: UUID, into contact: Contact) async {
         struct ProfileAvatarLookup: Decodable {
@@ -434,14 +495,146 @@ final class SupabaseManager: ObservableObject {
 
     // MARK: - Private
 
-    private func performPostAuthSync() async {
+    func performPostAuthSync() async {
         if let contact = ContactRepository.shared.getOwnProfile() {
             await syncProfile(contact)
         } else {
-            print("[Supabase] performPostAuthSync — getOwnProfile returned nil")
+            await restoreProfileFromRemote()
+            if let contact = ContactRepository.shared.getOwnProfile() {
+                await syncProfile(contact)
+            }
         }
+        await restoreContacts()
+        await restoreInteractions()
         await syncAllBoopConnections()
         await syncPendingPhotoUploads()
+    }
+
+    /// Restores interactions from the interaction_photos table.
+    /// Groups photos by (participants + date) to reconstruct each unique interaction.
+    func restoreInteractions() async {
+        guard let userId = session?.user.id else { return }
+
+        struct PhotoRow: Decodable {
+            let participants: [UUID]
+            let interaction_date: String
+            let storage_path: String
+            let uploaded_by: UUID
+        }
+        struct BLELookup: Decodable { let ble_device_uuid: UUID? }
+
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withFullDate]
+
+        do {
+            let photos: [PhotoRow] = try await client
+                .from("interaction_photos")
+                .select("participants, interaction_date, storage_path, uploaded_by")
+                .filter("participants", operator: "cs", value: "{\(userId.uuidString.lowercased())}")
+                .execute()
+                .value
+
+            let grouped = Dictionary(grouping: photos) {
+                let sorted = $0.participants.map { $0.uuidString.lowercased() }.sorted().joined()
+                return "\(sorted)-\($0.interaction_date)"
+            }.mapValues { rows in
+                // Deduplicate: keep only one photo per uploader (guards against double-upload bugs)
+                Array(Dictionary(grouping: rows) { $0.uploaded_by }.values.compactMap { $0.first })
+            }
+
+            var restoredCount = 0
+            for (_, photoGroup) in grouped {
+                guard let first = photoGroup.first,
+                      let timestamp = dateFormatter.date(from: first.interaction_date),
+                      let otherUserId = first.participants.first(where: { $0 != userId }) else { continue }
+
+                let lookups: [BLELookup] = (try? await client
+                    .from("profiles")
+                    .select("ble_device_uuid")
+                    .eq("id", value: otherUserId.uuidString)
+                    .limit(1)
+                    .execute()
+                    .value) ?? []
+
+                guard let bleUUID = lookups.first?.ble_device_uuid,
+                      let contact = ContactRepository.shared.find(byUUID: bleUUID) else { continue }
+
+                if BoopInteractionRepository.shared.isDuplicate(
+                    contactUUID: bleUUID,
+                    timestamp: timestamp,
+                    window: 12 * 3600
+                ) { continue }
+
+                var imageData: [Data] = []
+                var metadata: [PhotoMeta] = []
+                for photo in photoGroup {
+                    if let data = await downloadPhoto(storagePath: photo.storage_path) {
+                        imageData.append(data)
+                        metadata.append(PhotoMeta(storagePath: photo.storage_path, uploadedByUserID: photo.uploaded_by.uuidString))
+                    }
+                }
+
+                if let interaction = BoopInteractionRepository.shared.create(
+                    location: "",
+                    timestamp: timestamp,
+                    contact: contact
+                ) {
+                    interaction.imageData = imageData
+                    interaction.photoMetadata = metadata
+                    try? ModelContextProvider.shared.context?.save()
+                }
+                restoredCount += 1
+            }
+            print("[Supabase] restoreInteractions — restored \(restoredCount) interaction(s)")
+        } catch {
+            print("[Supabase] restoreInteractions — error: \(error)")
+        }
+    }
+
+    private func restoreProfileFromRemote() async {
+        guard let userId = session?.user.id else { return }
+
+        struct RemoteProfileRow: Decodable {
+            let name: String
+            let birthday: String?
+            let bio: String?
+            let avatar_url: String?
+        }
+
+        do {
+            let rows: [RemoteProfileRow] = try await client
+                .from("profiles")
+                .select("name, birthday, bio, avatar_url")
+                .eq("id", value: userId.uuidString)
+                .limit(1)
+                .execute()
+                .value
+
+            guard let row = rows.first else {
+                print("[Supabase] restoreProfileFromRemote — no remote profile found")
+                return
+            }
+
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withFullDate]
+            let birthday = row.birthday.flatMap { formatter.date(from: $0) }
+
+            var avatarData: Data? = nil
+            if let urlString = row.avatar_url, let url = URL(string: urlString) {
+                avatarData = try? await URLSession.shared.data(from: url).0
+            }
+
+            ContactRepository.shared.saveOwnProfile(
+                displayName: row.name,
+                birthday: birthday,
+                bio: row.bio,
+                gradientColors: [],
+                avatarData: avatarData
+            )
+            print("[Supabase] restoreProfileFromRemote — restored '\(row.name)'")
+        } catch {
+            print("[Supabase] restoreProfileFromRemote — error: \(error)")
+        }
     }
 
     private func friendlyAuthMessage(_ error: Error) -> String {
