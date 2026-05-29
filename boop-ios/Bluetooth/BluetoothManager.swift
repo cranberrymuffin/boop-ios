@@ -58,6 +58,7 @@ class BluetoothManager: NSObject, ObservableObject {
     }
 
     func start() {
+        _ = localDeviceUUID  // ensures UUID is persisted to UserDefaults before any profile operations
         Task {
             await service.start()
         }

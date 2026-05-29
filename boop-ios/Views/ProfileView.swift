@@ -10,10 +10,18 @@ struct ProfileView: View {
         case displayProfile
     }
 
+    @EnvironmentObject private var supabaseManager: SupabaseManager
     @State private var path = NavigationPath()
+    @State private var showingLogin = false
     @Query private var allInteractions: [BoopInteraction]
-    @State private var ownProfile: Contact? = nil
+    @Query private var allContacts: [Contact]
     @State private var profileState = ProfileState.loadingProfile
+
+    private var ownProfile: Contact? {
+        guard let uuidString = UserDefaults.standard.string(forKey: UserDefaultsKeys.localDeviceUUID),
+              let uuid = UUID(uuidString: uuidString) else { return nil }
+        return allContacts.first(where: { $0.uuid == uuid })
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -44,13 +52,37 @@ struct ProfileView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if profileState == .noProfile {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Log In") { showingLogin = true }
+                            .foregroundColor(.accentPrimary)
+                    }
+                }
+            }
             .navigationDestination(for: ProfileHistoryRoute.self) { _ in
                 AllBoopsHistoryView()
             }
             .navigationDestination(for: BoopInteraction.self) { interaction in
                 InteractionDetailView(interaction: interaction)
             }
-            .onAppear(perform: loadProfile)
+            .onAppear {
+                guard profileState == .loadingProfile else { return }
+                profileState = ownProfile != nil ? .displayProfile : .noProfile
+            }
+            .onChange(of: ownProfile?.uuid) { _, uuid in
+                switch (uuid, profileState) {
+                case (.some, .noProfile):
+                    profileState = .displayProfile
+                case (.none, .displayProfile):
+                    profileState = .noProfile
+                default:
+                    break
+                }
+            }
+            .sheet(isPresented: $showingLogin, onDismiss: loadProfile) {
+                LoginView()
+            }
         }
         .pageBackground()
         .onAppear { path = NavigationPath() }
@@ -83,15 +115,13 @@ struct ProfileView: View {
             gradientColors: ownProfile?.gradientColors,
             initialAvatarData: ownProfile?.avatarData,
             onSave: { contact in
-                ownProfile = contact
                 profileState = .displayProfile
+                Task { await supabaseManager.syncProfile(contact) }
             }
         )
     }
 
     private func loadProfile() {
-        profileState = .loadingProfile
-        ownProfile = ContactRepository.shared.getOwnProfile()
         profileState = ownProfile != nil ? .displayProfile : .noProfile
     }
 }
