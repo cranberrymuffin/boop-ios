@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HomeFeedBody: View {
     let interactions: [BoopInteraction]
+    @ObservedObject private var supabase = SupabaseManager.shared
 
     var body: some View {
         LazyVStack(spacing: Spacing.md) {
@@ -39,7 +40,11 @@ struct HomeFeedBody: View {
             }
 
             if !interaction.imageData.isEmpty {
-                feedPhotosRow(imageData: interaction.imageData)
+                feedPhotosRow(
+                    imageData: interaction.imageData,
+                    metadata: interaction.photoMetadata,
+                    contact: interaction.contact
+                )
             }
 
             feedNotesSection(notes: interaction.notes)
@@ -51,7 +56,8 @@ struct HomeFeedBody: View {
     }
 
     @ViewBuilder
-    private func feedPhotosRow(imageData: [Data]) -> some View {
+    private func feedPhotosRow(imageData: [Data], metadata: [PhotoMeta], contact: Contact?) -> some View {
+        let myID = supabase.session?.user.id.uuidString
         VStack(alignment: .leading, spacing: Spacing.md) {
             Text("Photos")
                 .heading3Style()
@@ -60,23 +66,40 @@ struct HomeFeedBody: View {
             HStack(spacing: Spacing.sm) {
                 ForEach(Array(imageData.prefix(4).enumerated()), id: \.offset) { index, data in
                     if let uiImage = UIImage(data: data) {
-                        ZStack(alignment: .bottomTrailing) {
-                            Image(uiImage: uiImage)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 72, height: 72)
-                                .clipped()
-                                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.md))
+                        let meta = index < metadata.count ? metadata[index] : nil
+                        let isTheirPhoto = meta != nil && meta?.uploadedByUserID != myID
+                        ZStack(alignment: .topTrailing) {
+                            ZStack(alignment: .bottomTrailing) {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 72, height: 72)
+                                    .clipped()
+                                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.md))
 
-                            if index == 3, imageData.count > 4 {
-                                Text("+\(imageData.count - 4)")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, Spacing.xs)
-                                    .padding(.vertical, 2)
-                                    .background(Color.black.opacity(0.6))
-                                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.sm))
-                                    .padding(Spacing.xs)
+                                if index == 3, imageData.count > 4 {
+                                    Text("+\(imageData.count - 4)")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, Spacing.xs)
+                                        .padding(.vertical, 2)
+                                        .background(Color.black.opacity(0.6))
+                                        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.sm))
+                                        .padding(Spacing.xs)
+                                }
+                            }
+
+                            if isTheirPhoto, let contact, let initial = contact.displayName.first {
+                                let color = contact.gradientColorsData.first.flatMap { Contact.stringToColor($0) } ?? Color.accentPrimary
+                                Circle()
+                                    .fill(color)
+                                    .frame(width: 20, height: 20)
+                                    .overlay(
+                                        Text(String(initial))
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(.white)
+                                    )
+                                    .offset(x: 4, y: -4)
                             }
                         }
                         .allowsHitTesting(false)

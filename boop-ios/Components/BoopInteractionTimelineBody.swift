@@ -184,10 +184,12 @@ struct InteractionDetailView: View {
                         }
                 }
 
-                // Local photos (yours)
+                // Local photos (yours + restored from backup)
                 ForEach(0..<localVisible, id: \.self) { index in
                     if index < localPhotos.count, let uiImage = UIImage(data: localPhotos[index]) {
-                        let isPending = index < localMeta.count && localMeta[index].storagePath == nil && supabase.session != nil
+                        let meta = index < localMeta.count ? localMeta[index] : nil
+                        let isPending = meta?.storagePath == nil && meta != nil && supabase.session != nil
+                        let isTheirPhoto = meta?.uploadedByUserID != supabase.session?.user.id.uuidString && meta != nil
                         ZStack(alignment: .topTrailing) {
                             Button {
                                 photoViewerItem = PhotoViewerItem(index: index)
@@ -209,6 +211,8 @@ struct InteractionDetailView: View {
                                         .background(Circle().fill(Color.white))
                                 }
                                 .offset(x: 4, y: -4)
+                            } else if isTheirPhoto {
+                                contactInitialBadge
                             } else if isPending {
                                 Image(systemName: "arrow.up.circle.fill")
                                     .foregroundStyle(.white, Color.accentPrimary)
@@ -326,7 +330,10 @@ struct InteractionDetailView: View {
             interactionDate: interaction.timestamp
         )
         let localPaths = Set(interaction.photoMetadata.compactMap { $0.storagePath })
-        let theirRows = rows.filter { $0.uploadedBy != myID && !localPaths.contains($0.storagePath) }
+        let theirRows = Array(
+            Dictionary(grouping: rows.filter { $0.uploadedBy != myID && !localPaths.contains($0.storagePath) }) { $0.uploadedBy }
+                .values.compactMap { $0.first }
+        )
 
         var fetched: [RemotePhoto] = []
         await withTaskGroup(of: RemotePhoto?.self) { group in
