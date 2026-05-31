@@ -242,7 +242,7 @@ final class SupabaseManager: ObservableObject {
 
         struct Connection: Encodable {
             let participants: [UUID]
-            let last_seen: String
+            let started_at: String
         }
 
         // Sort UUIDs so the array is order-independent
@@ -250,12 +250,9 @@ final class SupabaseManager: ObservableObject {
 
         do {
             try await client.from("boop_interactions")
-                .upsert(
-                    Connection(participants: participants, last_seen: ISO8601DateFormatter().string(from: lastBoopedAt)),
-                    onConflict: "participants"
-                )
+                .insert(Connection(participants: participants, started_at: ISO8601DateFormatter().string(from: lastBoopedAt)))
                 .execute()
-            print("[Supabase] recordBoopConnection — upserted connection with \(bleUUID.uuidString.prefix(8))")
+            print("[Supabase] recordBoopConnection — inserted connection with \(bleUUID.uuidString.prefix(8))")
         } catch {
             print("[Supabase] recordBoopConnection — error: \(error)")
         }
@@ -521,9 +518,7 @@ final class SupabaseManager: ObservableObject {
             await syncProfile(contact)
         } else {
             await restoreProfileFromRemote()
-            if let contact = ContactRepository.shared.getOwnProfile() {
-                await syncProfile(contact)
-            }
+            // saveOwnProfile inside restoreProfileFromRemote already calls syncProfile
         }
         await restoreContacts()
         await restoreInteractions()
@@ -564,7 +559,7 @@ final class SupabaseManager: ObservableObject {
                       let contact = ContactRepository.shared.find(byUUID: otherUserId) else { continue }
 
                 if BoopInteractionRepository.shared.isDuplicate(
-                    contactUUID: bleUUID,
+                    contactUUID: otherUserId,
                     timestamp: timestamp,
                     window: 12 * 3600
                 ) { continue }
