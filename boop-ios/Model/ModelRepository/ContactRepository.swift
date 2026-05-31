@@ -74,14 +74,21 @@ final class ContactRepository {
         return find(byUUID: uuid)
     }
 
-    /// Upsert the user's own profile Contact, keyed by localDeviceUUID.
+    /// Upsert the user's own profile Contact keyed by localDeviceUUID, then sync to Supabase.
     @discardableResult
-    func saveOwnProfile(displayName: String, birthday: Date?, bio: String?, gradientColors: [Color], avatarData: Data?) -> Contact? {
+    func saveOwnProfile(
+        displayName: String,
+        birthday: Date?,
+        bio: String?,
+        gradientColors: [Color],
+        avatarData: Data?
+    ) async -> Contact? {
         guard let uuidString = UserDefaults.standard.string(forKey: localDeviceUUIDKey),
               let uuid = UUID(uuidString: uuidString) else { return nil }
         guard let contact = findOrCreate(uuid: uuid, displayName: displayName, birthday: birthday, bio: bio, gradientColors: gradientColors) else { return nil }
         contact.avatarData = avatarData
         save()
+        await SupabaseManager.shared.syncProfile(contact)
         return contact
     }
 

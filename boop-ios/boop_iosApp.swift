@@ -63,18 +63,28 @@ struct boop_iosApp: App {
                 }
             }
             .task {
+                // Seed device UUID before any profile operations.
+                // localDeviceUUID is otherwise lazy-initialized inside BluetoothManager.start(),
+                // which is deferred until after auth+profile — seeding here decouples identity
+                // from the BLE lifecycle and prevents first-run profile saves from failing.
+                if UserDefaults.standard.string(forKey: UserDefaultsKeys.localDeviceUUID) == nil {
+                    UserDefaults.standard.set(UUID().uuidString, forKey: UserDefaultsKeys.localDeviceUUID)
+                }
+
                 await setModelContainer()
                 locationManager.requestPermissionIfNeeded()
                 if let container = sharedModelContainer {
                     ModelContextProvider.shared.setModelContainer(container)
                 }
                 boopManager.setLocationManager(locationManager)
+                // restoreSession validates server-side and hydrates local caches from Supabase.
                 await supabaseManager.restoreSession()
 
-                // ModelContext is ready — sync or restore profile if already logged in
-                if supabaseManager.session != nil {
-                    await supabaseManager.performPostAuthSync()
-                }
+                // Splash lifts only after session check + profile sync complete.
+                // This prevents RootView routing to MandatoryProfileSetupView
+                // while a returning user's profile is still being restored from remote.
+                supabaseManager.isSessionLoading = false
+                print("[Auth] isSessionLoading → false")
 
                 // One-time data migration: merge duplicate interactions per session
                 if !UserDefaults.standard.bool(forKey: "hasRunSessionMergeV2") {

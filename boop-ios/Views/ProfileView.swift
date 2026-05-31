@@ -6,13 +6,11 @@ struct ProfileView: View {
     enum ProfileState {
         case loadingProfile
         case editingProfile
-        case noProfile
         case displayProfile
     }
 
     @EnvironmentObject private var supabaseManager: SupabaseManager
     @State private var path = NavigationPath()
-    @State private var showingLogin = false
     @Query private var allInteractions: [BoopInteraction]
     @Query private var allContacts: [Contact]
     @State private var profileState = ProfileState.loadingProfile
@@ -31,8 +29,6 @@ struct ProfileView: View {
                     loadingView
                 case .editingProfile:
                     editModeView
-                case .noProfile:
-                    editModeView
                 case .displayProfile:
                     if let profile = ownProfile {
                         PersonDetailView(
@@ -46,20 +42,10 @@ struct ProfileView: View {
                             onEdit: { profileState = .editingProfile },
                             historyRoute: ProfileHistoryRoute()
                         )
-                    } else {
-                        noProfileFoundView
                     }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if profileState == .noProfile {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("Log In") { showingLogin = true }
-                            .foregroundColor(.accentPrimary)
-                    }
-                }
-            }
             .navigationDestination(for: ProfileHistoryRoute.self) { _ in
                 AllBoopsHistoryView()
             }
@@ -68,20 +54,12 @@ struct ProfileView: View {
             }
             .onAppear {
                 guard profileState == .loadingProfile else { return }
-                profileState = ownProfile != nil ? .displayProfile : .noProfile
+                profileState = ownProfile != nil ? .displayProfile : .loadingProfile
             }
             .onChange(of: ownProfile?.uuid) { _, uuid in
-                switch (uuid, profileState) {
-                case (.some, .noProfile):
+                if uuid != nil, profileState != .editingProfile {
                     profileState = .displayProfile
-                case (.none, .displayProfile):
-                    profileState = .noProfile
-                default:
-                    break
                 }
-            }
-            .sheet(isPresented: $showingLogin, onDismiss: loadProfile) {
-                LoginView()
             }
         }
         .pageBackground()
@@ -96,14 +74,6 @@ struct ProfileView: View {
         }
     }
 
-    private var noProfileFoundView: some View {
-        ZStack {
-            Spacer()
-            Text("No Profile Found")
-            Spacer()
-        }
-    }
-
     private var editModeView: some View {
         ProfileSetupView(
             initialName: ownProfile?.displayName ?? "",
@@ -114,15 +84,10 @@ struct ProfileView: View {
             isEditMode: true,
             gradientColors: ownProfile?.gradientColors,
             initialAvatarData: ownProfile?.avatarData,
-            onSave: { contact in
+            onSave: { _ in
                 profileState = .displayProfile
-                Task { await supabaseManager.syncProfile(contact) }
             }
         )
-    }
-
-    private func loadProfile() {
-        profileState = ownProfile != nil ? .displayProfile : .noProfile
     }
 }
 

@@ -20,17 +20,38 @@ final class SupabaseManager: ObservableObject {
     @Published var session: Session?
     @Published var isLoading = false
     @Published var authError: String?
+    @Published var isSessionLoading = true
+    @Published var hasProfile: Bool = false
 
     private var pendingRawNonce: String?
 
     private init() {}
 
+    /// Validates the session server-side and hydrates local caches from Supabase.
+    /// This is the single call needed at app startup — no separate performPostAuthSync needed.
     func restoreSession() async {
         do {
-            session = try await client.auth.session
-        } catch {
+            // Refresh validates the session server-side and rotates tokens.
+            session = try await client.auth.refreshSession()
+        } catch let error as AuthError {
+            // Session is genuinely invalid (revoked, expired refresh token) — force re-login.
+            print("[Auth] Session invalid, clearing: \(error)")
             session = nil
+            hasProfile = false
+            return
+        } catch {
+            // Network error — fall back to the locally cached session.
+            print("[Auth] Network error during session refresh, using cached session: \(error)")
+            do {
+                session = try await client.auth.session
+            } catch {
+                session = nil
+                hasProfile = false
+                return
+            }
         }
+        // Session is valid — hydrate local caches fresh from Supabase.
+        await performPostAuthSync()
     }
 
     /// Call from SignInWithAppleButton.onRequest — stores the raw nonce and returns the hashed one for Apple.
@@ -63,7 +84,9 @@ final class SupabaseManager: ObservableObject {
                 credentials: .init(provider: .apple, idToken: idToken, nonce: rawNonce)
             )
 
+            isSessionLoading = true
             await performPostAuthSync()
+            isSessionLoading = false
         } catch {
             // Apple SDK errors are user-safe; bypass friendlyAuthMessage
             authError = error.localizedDescription
@@ -77,6 +100,7 @@ final class SupabaseManager: ObservableObject {
         do {
             try await client.auth.signOut()
             session = nil
+            hasProfile = false
         } catch {
             authError = error.localizedDescription
         }
@@ -101,7 +125,9 @@ final class SupabaseManager: ObservableObject {
                 // Email confirmation disabled at project level (defensive path)
                 session = newSession
                 print("[Supabase] signUpWithEmail result: signedIn")
+                isSessionLoading = true
                 await performPostAuthSync()
+                isSessionLoading = false
                 return .signedIn
             } else {
                 print("[Supabase] signUpWithEmail result: verificationRequired")
@@ -125,7 +151,9 @@ final class SupabaseManager: ObservableObject {
         do {
             session = try await client.auth.signIn(email: email, password: password)
             print("[Supabase] signInWithEmail — outcome: success")
+            isSessionLoading = true
             await performPostAuthSync()
+            isSessionLoading = false
         } catch {
             print("[Supabase] signInWithEmail — outcome: failed")
             authError = friendlyAuthMessage(error)
@@ -150,8 +178,11 @@ final class SupabaseManager: ObservableObject {
     }
 
     func syncProfile(_ contact: Contact) async {
-        guard let userId = session?.user.id else { return }
-        print("[Supabase] syncProfile — userId: \(userId), avatarBytes: \(contact.avatarData?.count ?? 0)")
+        guard let userId = session?.user.id else {
+            print("[Supabase] syncProfile — skipped, no session")
+            return
+        }
+        print("[Supabase] syncProfile — userId: \(userId), name: \(contact.displayName), avatarBytes: \(contact.avatarData?.count ?? 0)")
 
         var avatarURL: String? = nil
         if let avatarData = contact.avatarData {
@@ -163,31 +194,30 @@ final class SupabaseManager: ObservableObject {
 
         struct ProfileRow: Encodable {
             let id: UUID
-            let ble_device_uuid: UUID?
-            let name: String
+            let display_name: String
             let birthday: String?
             let bio: String?
             let avatar_url: String?
+            let gradient_colors: [String]
         }
 
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withFullDate]
 
-        let bleUUIDString = UserDefaults.standard.string(forKey: UserDefaultsKeys.localDeviceUUID)
-        let bleUUID = bleUUIDString.flatMap { UUID(uuidString: $0) }
-
         let row = ProfileRow(
             id: userId,
-            ble_device_uuid: bleUUID,
-            name: contact.displayName,
+            display_name: contact.displayName,
             birthday: contact.birthday.map { formatter.string(from: $0) },
             bio: contact.bio,
-            avatar_url: avatarURL
+            avatar_url: avatarURL,
+            gradient_colors: contact.gradientColorsData
         )
 
         do {
             try await client.from("profiles").upsert(row).execute()
+            print("[Supabase] syncProfile — upsert succeeded for \(userId.uuidString.prefix(8))")
         } catch {
+            print("[Supabase] syncProfile — upsert FAILED: \(error)")
             authError = error.localizedDescription
         }
     }
@@ -224,7 +254,7 @@ final class SupabaseManager: ObservableObject {
             // Sort UUIDs so the array is order-independent — extends naturally to N participants
             let participants = [myUserId, contactUserId].sorted { $0.uuidString < $1.uuidString }
 
-            try await client.from("boop_connections")
+            try await client.from("boop_interactions")
                 .upsert(
                     Connection(
                         participants: participants,
@@ -239,7 +269,7 @@ final class SupabaseManager: ObservableObject {
         }
     }
 
-    /// Syncs all locally stored boop contacts to Supabase boop_connections and fetches their avatars.
+    /// Syncs all locally stored boop contacts to Supabase boop_interactions and fetches their avatars.
     /// Call on login so existing offline boops are reflected in the remote table.
     func syncAllBoopConnections() async {
         guard session?.user.id != nil else { return }
@@ -272,7 +302,7 @@ final class SupabaseManager: ObservableObject {
         }
         struct RemoteContact: Decodable {
             let ble_device_uuid: UUID?
-            let name: String
+            let display_name: String
             let birthday: String?
             let bio: String?
             let avatar_url: String?
@@ -280,7 +310,7 @@ final class SupabaseManager: ObservableObject {
 
         do {
             let connections: [ConnectionRow] = try await client
-                .from("boop_connections")
+                .from("boop_interactions")
                 .select("participants")
                 .filter("participants", operator: "cs", value: "{\(userId.uuidString.lowercased())}")
                 .execute()
@@ -292,7 +322,7 @@ final class SupabaseManager: ObservableObject {
 
                 let profiles: [RemoteContact] = try await client
                     .from("profiles")
-                    .select("ble_device_uuid, name, birthday, bio, avatar_url")
+                    .select("ble_device_uuid, display_name, birthday, bio, avatar_url")
                     .eq("id", value: otherUserId.uuidString)
                     .limit(1)
                     .execute()
@@ -306,7 +336,7 @@ final class SupabaseManager: ObservableObject {
 
                 guard let contact = ContactRepository.shared.findOrCreate(
                     uuid: bleUUID,
-                    displayName: profile.name,
+                    displayName: profile.display_name,
                     birthday: birthday,
                     bio: profile.bio,
                     gradientColors: []
@@ -391,30 +421,23 @@ final class SupabaseManager: ObservableObject {
 
     func uploadInteractionPhoto(data: Data, contactBLEUUID: UUID, interactionDate: Date) async -> String? {
         guard let myID = session?.user.id,
-              let participants = await participantsForContact(contactBLEUUID) else { return nil }
+              let participants = await participantsForContact(contactBLEUUID),
+              let interactionID = await findInteractionID(participants: participants, near: interactionDate) else { return nil }
 
         struct PhotoRow: Encodable {
-            let participants: [UUID]
-            let interaction_date: String
+            let interaction_id: UUID
             let uploaded_by: UUID
             let storage_path: String
         }
 
-        let dateFormatter = ISO8601DateFormatter()
-        dateFormatter.formatOptions = [.withFullDate]
         let path = "\(myID.uuidString.lowercased())/interactions/\(UUID().uuidString.lowercased()).jpg"
 
         do {
             _ = try await client.storage
                 .from("interaction-photos")
                 .upload(path: path, file: data, options: FileOptions(contentType: "image/jpeg", upsert: false))
-            try await client.from("interaction_photos")
-                .insert(PhotoRow(
-                    participants: participants,
-                    interaction_date: dateFormatter.string(from: interactionDate),
-                    uploaded_by: myID,
-                    storage_path: path
-                ))
+            try await client.from("photos")
+                .insert(PhotoRow(interaction_id: interactionID, uploaded_by: myID, storage_path: path))
                 .execute()
             print("[Supabase] uploadInteractionPhoto — uploaded \(path)")
             return path
@@ -425,24 +448,40 @@ final class SupabaseManager: ObservableObject {
     }
 
     func fetchInteractionPhotoRows(contactBLEUUID: UUID, interactionDate: Date) async -> [InteractionPhotoRow] {
-        guard let participants = await participantsForContact(contactBLEUUID) else { return [] }
-
-        let dateFormatter = ISO8601DateFormatter()
-        dateFormatter.formatOptions = [.withFullDate]
-        let participantsLiteral = "{\(participants.map { $0.uuidString.lowercased() }.joined(separator: ","))}"
-
+        guard let participants = await participantsForContact(contactBLEUUID),
+              let interactionID = await findInteractionID(participants: participants, near: interactionDate) else { return [] }
         do {
             return try await client
-                .from("interaction_photos")
+                .from("photos")
                 .select("id, storage_path, uploaded_by")
-                .filter("participants", operator: "eq", value: participantsLiteral)
-                .eq("interaction_date", value: dateFormatter.string(from: interactionDate))
+                .eq("interaction_id", value: interactionID.uuidString)
                 .execute()
                 .value
         } catch {
             print("[Supabase] fetchInteractionPhotoRows — error: \(error)")
             return []
         }
+    }
+
+    /// Finds the boop_interactions row for the given participants closest in time to `date` (within 24h).
+    private func findInteractionID(participants: [UUID], near date: Date) async -> UUID? {
+        struct Row: Decodable { let id: UUID; let started_at: String }
+        let participantsLiteral = "{\(participants.map { $0.uuidString.lowercased() }.joined(separator: ","))}"
+        guard let rows: [Row] = try? await client
+            .from("boop_interactions")
+            .select("id, started_at")
+            .filter("participants", operator: "cs", value: participantsLiteral)
+            .execute()
+            .value else { return nil }
+        let formatter = ISO8601DateFormatter()
+        return rows
+            .compactMap { row -> (UUID, TimeInterval)? in
+                guard let d = formatter.date(from: row.started_at) else { return nil }
+                let delta = abs(d.timeIntervalSince(date))
+                return delta < 86400 ? (row.id, delta) : nil
+            }
+            .min(by: { $0.1 < $1.1 })?
+            .0
     }
 
     func downloadPhoto(storagePath: String) async -> Data? {
@@ -458,7 +497,7 @@ final class SupabaseManager: ObservableObject {
 
     func deleteInteractionPhoto(storagePath: String) async {
         do {
-            try await client.from("interaction_photos")
+            try await client.from("photos")
                 .delete()
                 .eq("storage_path", value: storagePath)
                 .execute()
@@ -508,45 +547,38 @@ final class SupabaseManager: ObservableObject {
         await restoreInteractions()
         await syncAllBoopConnections()
         await syncPendingPhotoUploads()
+        hasProfile = ContactRepository.shared.getOwnProfile() != nil
     }
 
-    /// Restores interactions from the interaction_photos table.
-    /// Groups photos by (participants + date) to reconstruct each unique interaction.
+    /// Restores interactions from boop_interactions, fetching associated photos by interaction_id.
     func restoreInteractions() async {
         guard let userId = session?.user.id else { return }
 
-        struct PhotoRow: Decodable {
+        struct InteractionRow: Decodable {
+            let id: UUID
             let participants: [UUID]
-            let interaction_date: String
+            let started_at: String
+        }
+        struct PhotoRow: Decodable {
             let storage_path: String
             let uploaded_by: UUID
         }
         struct BLELookup: Decodable { let ble_device_uuid: UUID? }
 
         let dateFormatter = ISO8601DateFormatter()
-        dateFormatter.formatOptions = [.withFullDate]
 
         do {
-            let photos: [PhotoRow] = try await client
-                .from("interaction_photos")
-                .select("participants, interaction_date, storage_path, uploaded_by")
+            let interactions: [InteractionRow] = try await client
+                .from("boop_interactions")
+                .select("id, participants, started_at")
                 .filter("participants", operator: "cs", value: "{\(userId.uuidString.lowercased())}")
                 .execute()
                 .value
 
-            let grouped = Dictionary(grouping: photos) {
-                let sorted = $0.participants.map { $0.uuidString.lowercased() }.sorted().joined()
-                return "\(sorted)-\($0.interaction_date)"
-            }.mapValues { rows in
-                // Deduplicate: keep only one photo per uploader (guards against double-upload bugs)
-                Array(Dictionary(grouping: rows) { $0.uploaded_by }.values.compactMap { $0.first })
-            }
-
             var restoredCount = 0
-            for (_, photoGroup) in grouped {
-                guard let first = photoGroup.first,
-                      let timestamp = dateFormatter.date(from: first.interaction_date),
-                      let otherUserId = first.participants.first(where: { $0 != userId }) else { continue }
+            for interaction in interactions {
+                guard let otherUserId = interaction.participants.first(where: { $0 != userId }),
+                      let timestamp = dateFormatter.date(from: interaction.started_at) else { continue }
 
                 let lookups: [BLELookup] = (try? await client
                     .from("profiles")
@@ -565,22 +597,29 @@ final class SupabaseManager: ObservableObject {
                     window: 12 * 3600
                 ) { continue }
 
+                let photos: [PhotoRow] = (try? await client
+                    .from("photos")
+                    .select("storage_path, uploaded_by")
+                    .eq("interaction_id", value: interaction.id.uuidString)
+                    .execute()
+                    .value) ?? []
+
                 var imageData: [Data] = []
                 var metadata: [PhotoMeta] = []
-                for photo in photoGroup {
+                for photo in photos {
                     if let data = await downloadPhoto(storagePath: photo.storage_path) {
                         imageData.append(data)
                         metadata.append(PhotoMeta(storagePath: photo.storage_path, uploadedByUserID: photo.uploaded_by.uuidString))
                     }
                 }
 
-                if let interaction = BoopInteractionRepository.shared.create(
+                if let localInteraction = BoopInteractionRepository.shared.create(
                     location: "",
                     timestamp: timestamp,
                     contact: contact
                 ) {
-                    interaction.imageData = imageData
-                    interaction.photoMetadata = metadata
+                    localInteraction.imageData = imageData
+                    localInteraction.photoMetadata = metadata
                     try? ModelContextProvider.shared.context?.save()
                 }
                 restoredCount += 1
@@ -595,16 +634,17 @@ final class SupabaseManager: ObservableObject {
         guard let userId = session?.user.id else { return }
 
         struct RemoteProfileRow: Decodable {
-            let name: String
+            let display_name: String
             let birthday: String?
             let bio: String?
             let avatar_url: String?
+            let gradient_colors: [String]?
         }
 
         do {
             let rows: [RemoteProfileRow] = try await client
                 .from("profiles")
-                .select("name, birthday, bio, avatar_url")
+                .select("display_name, birthday, bio, avatar_url, gradient_colors")
                 .eq("id", value: userId.uuidString)
                 .limit(1)
                 .execute()
@@ -624,14 +664,15 @@ final class SupabaseManager: ObservableObject {
                 avatarData = try? await URLSession.shared.data(from: url).0
             }
 
-            ContactRepository.shared.saveOwnProfile(
-                displayName: row.name,
+            let gradientColors = (row.gradient_colors ?? []).compactMap { Contact.stringToColor($0) }
+            await ContactRepository.shared.saveOwnProfile(
+                displayName: row.display_name,
                 birthday: birthday,
                 bio: row.bio,
-                gradientColors: [],
+                gradientColors: gradientColors,
                 avatarData: avatarData
             )
-            print("[Supabase] restoreProfileFromRemote — restored '\(row.name)'")
+            print("[Supabase] restoreProfileFromRemote — restored '\(row.display_name)'")
         } catch {
             print("[Supabase] restoreProfileFromRemote — error: \(error)")
         }

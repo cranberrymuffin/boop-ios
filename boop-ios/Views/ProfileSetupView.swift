@@ -169,18 +169,20 @@ struct ProfileSetupView: View {
 
     private func saveProfile() {
         isLoading = true
-        guard let contact = ContactRepository.shared.saveOwnProfile(
-            displayName: name.sanitize(),
-            birthday: birthday,
-            bio: bio.isEmpty ? nil : bio.sanitize(),
-            gradientColors: gradientColors,
-            avatarData: avatarData
-        ) else {
+        Task {
+            guard let contact = await ContactRepository.shared.saveOwnProfile(
+                displayName: name.sanitize(),
+                birthday: birthday,
+                bio: bio.isEmpty ? nil : bio.sanitize(),
+                gradientColors: gradientColors,
+                avatarData: avatarData
+            ) else {
+                isLoading = false
+                return
+            }
+            onSave(contact)
             isLoading = false
-            return
         }
-        onSave(contact)
-        isLoading = false
     }
 }
 
