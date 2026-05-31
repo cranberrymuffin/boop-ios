@@ -65,16 +65,13 @@ final class ContactRepository {
 
     // MARK: - Own Profile
 
-    private let localDeviceUUIDKey = UserDefaultsKeys.localDeviceUUID
-
     /// Returns the Contact record for this device's own profile, or nil if not set up yet.
     func getOwnProfile() -> Contact? {
-        guard let uuidString = UserDefaults.standard.string(forKey: localDeviceUUIDKey),
-              let uuid = UUID(uuidString: uuidString) else { return nil }
+        guard let uuid = SupabaseManager.shared.session?.user.id else { return nil }
         return find(byUUID: uuid)
     }
 
-    /// Upsert the user's own profile Contact keyed by localDeviceUUID, then sync to Supabase.
+    /// Upsert the user's own profile Contact keyed by the Supabase user ID, then sync to Supabase.
     @discardableResult
     func saveOwnProfile(
         displayName: String,
@@ -83,8 +80,7 @@ final class ContactRepository {
         gradientColors: [Color],
         avatarData: Data?
     ) async -> Contact? {
-        guard let uuidString = UserDefaults.standard.string(forKey: localDeviceUUIDKey),
-              let uuid = UUID(uuidString: uuidString) else { return nil }
+        guard let uuid = SupabaseManager.shared.session?.user.id else { return nil }
         guard let contact = findOrCreate(uuid: uuid, displayName: displayName, birthday: birthday, bio: bio, gradientColors: gradientColors) else { return nil }
         contact.avatarData = avatarData
         save()
@@ -97,6 +93,12 @@ final class ContactRepository {
     /// Delete a contact (cascades to its interactions).
     func delete(_ contact: Contact) {
         modelContext?.delete(contact)
+        save()
+    }
+
+    /// Delete all contacts and their interactions (used on sign-out).
+    func deleteAll() {
+        try? modelContext?.delete(model: Contact.self)
         save()
     }
 

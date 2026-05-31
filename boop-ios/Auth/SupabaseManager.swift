@@ -101,9 +101,23 @@ final class SupabaseManager: ObservableObject {
             try await client.auth.signOut()
             session = nil
             hasProfile = false
+            clearLocalUserData()
         } catch {
             authError = error.localizedDescription
         }
+    }
+
+    private func clearLocalUserData() {
+        ContactRepository.shared.deleteAll()
+        try? ModelContextProvider.shared.context?.delete(model: NotificationIntent.self)
+
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: UserDefaultsKeys.profileComplete)
+        defaults.removeObject(forKey: UserDefaultsKeys.name)
+        defaults.removeObject(forKey: UserDefaultsKeys.birthday)
+        defaults.removeObject(forKey: UserDefaultsKeys.bio)
+        defaults.removeObject(forKey: UserDefaultsKeys.gradientColors)
+        defaults.removeObject(forKey: "hasRunSessionMergeV2")
     }
 
     // MARK: - Email Auth
@@ -222,48 +236,26 @@ final class SupabaseManager: ObservableObject {
         }
     }
 
-    /// Records a boop connection to Supabase. Call after a boop event with the contact's BLE device UUID.
-    /// Requires the contact to have previously synced their profile (so their ble_device_uuid is on file).
+    /// Records a boop connection to Supabase. The BLE device UUID is the contact's Supabase user ID.
     func recordBoopConnection(withBLEDeviceUUID bleUUID: UUID, lastBoopedAt: Date = Date()) async {
         guard let myUserId = session?.user.id else { return }
 
-        struct ProfileLookup: Decodable {
-            let id: UUID
-        }
         struct Connection: Encodable {
             let participants: [UUID]
             let last_seen: String
         }
 
-        let iso = ISO8601DateFormatter()
+        // Sort UUIDs so the array is order-independent
+        let participants = [myUserId, bleUUID].sorted { $0.uuidString < $1.uuidString }
 
         do {
-            let results: [ProfileLookup] = try await client
-                .from("profiles")
-                .select("id")
-                .eq("ble_device_uuid", value: bleUUID.uuidString)
-                .limit(1)
-                .execute()
-                .value
-
-            guard let contactUserId = results.first?.id else {
-                print("[Supabase] recordBoopConnection — no profile found for BLE UUID \(bleUUID.uuidString.prefix(8)), skipping")
-                return
-            }
-
-            // Sort UUIDs so the array is order-independent — extends naturally to N participants
-            let participants = [myUserId, contactUserId].sorted { $0.uuidString < $1.uuidString }
-
             try await client.from("boop_interactions")
                 .upsert(
-                    Connection(
-                        participants: participants,
-                        last_seen: iso.string(from: lastBoopedAt)
-                    ),
+                    Connection(participants: participants, last_seen: ISO8601DateFormatter().string(from: lastBoopedAt)),
                     onConflict: "participants"
                 )
                 .execute()
-            print("[Supabase] recordBoopConnection — upserted connection with \(contactUserId.uuidString.prefix(8))")
+            print("[Supabase] recordBoopConnection — upserted connection with \(bleUUID.uuidString.prefix(8))")
         } catch {
             print("[Supabase] recordBoopConnection — error: \(error)")
         }
@@ -274,14 +266,11 @@ final class SupabaseManager: ObservableObject {
     func syncAllBoopConnections() async {
         guard session?.user.id != nil else { return }
 
-        let ownUUID = UserDefaults.standard.string(forKey: UserDefaultsKeys.localDeviceUUID)
-            .flatMap { UUID(uuidString: $0) }
-
+        let ownUserID = session?.user.id
         let contacts = ContactRepository.shared.fetchAllContacts()
 
         for contact in contacts {
-            // Skip the user's own profile
-            if let ownUUID, contact.uuid == ownUUID { continue }
+            if let ownUserID, contact.uuid == ownUserID { continue }
 
             let latestTimestamp = contact.interactions
                 .compactMap { $0.timestamp as Date? }
@@ -301,7 +290,6 @@ final class SupabaseManager: ObservableObject {
             let participants: [UUID]
         }
         struct RemoteContact: Decodable {
-            let ble_device_uuid: UUID?
             let display_name: String
             let birthday: String?
             let bio: String?
@@ -318,24 +306,25 @@ final class SupabaseManager: ObservableObject {
 
             var restoredCount = 0
             for connection in connections {
+                // otherUserId IS the contact's UUID (BLE UUID = Supabase user ID)
                 guard let otherUserId = connection.participants.first(where: { $0 != userId }) else { continue }
 
                 let profiles: [RemoteContact] = try await client
                     .from("profiles")
-                    .select("ble_device_uuid, display_name, birthday, bio, avatar_url")
+                    .select("display_name, birthday, bio, avatar_url")
                     .eq("id", value: otherUserId.uuidString)
                     .limit(1)
                     .execute()
                     .value
 
-                guard let profile = profiles.first, let bleUUID = profile.ble_device_uuid else { continue }
+                guard let profile = profiles.first else { continue }
 
                 let formatter = ISO8601DateFormatter()
                 formatter.formatOptions = [.withFullDate]
                 let birthday = profile.birthday.flatMap { formatter.date(from: $0) }
 
                 guard let contact = ContactRepository.shared.findOrCreate(
-                    uuid: bleUUID,
+                    uuid: otherUserId,
                     displayName: profile.display_name,
                     birthday: birthday,
                     bio: profile.bio,
@@ -363,7 +352,7 @@ final class SupabaseManager: ObservableObject {
             let results: [ProfileAvatarLookup] = try await client
                 .from("profiles")
                 .select("avatar_url")
-                .eq("ble_device_uuid", value: bleUUID.uuidString)
+                .eq("id", value: bleUUID.uuidString)
                 .limit(1)
                 .execute()
                 .value
@@ -401,16 +390,9 @@ final class SupabaseManager: ObservableObject {
         }
     }
 
+    /// The BLE device UUID is the Supabase user ID — return it directly.
     func resolveSupabaseUserID(forBLEDeviceUUID bleUUID: UUID) async -> UUID? {
-        struct ProfileLookup: Decodable { let id: UUID }
-        let results: [ProfileLookup]? = try? await client
-            .from("profiles")
-            .select("id")
-            .eq("ble_device_uuid", value: bleUUID.uuidString)
-            .limit(1)
-            .execute()
-            .value
-        return results?.first?.id
+        bleUUID
     }
 
     private func participantsForContact(_ contactBLEUUID: UUID) async -> [UUID]? {
@@ -563,7 +545,6 @@ final class SupabaseManager: ObservableObject {
             let storage_path: String
             let uploaded_by: UUID
         }
-        struct BLELookup: Decodable { let ble_device_uuid: UUID? }
 
         let dateFormatter = ISO8601DateFormatter()
 
@@ -577,19 +558,10 @@ final class SupabaseManager: ObservableObject {
 
             var restoredCount = 0
             for interaction in interactions {
+                // otherUserId IS the contact's local UUID (BLE UUID = Supabase user ID)
                 guard let otherUserId = interaction.participants.first(where: { $0 != userId }),
-                      let timestamp = dateFormatter.date(from: interaction.started_at) else { continue }
-
-                let lookups: [BLELookup] = (try? await client
-                    .from("profiles")
-                    .select("ble_device_uuid")
-                    .eq("id", value: otherUserId.uuidString)
-                    .limit(1)
-                    .execute()
-                    .value) ?? []
-
-                guard let bleUUID = lookups.first?.ble_device_uuid,
-                      let contact = ContactRepository.shared.find(byUUID: bleUUID) else { continue }
+                      let timestamp = dateFormatter.date(from: interaction.started_at),
+                      let contact = ContactRepository.shared.find(byUUID: otherUserId) else { continue }
 
                 if BoopInteractionRepository.shared.isDuplicate(
                     contactUUID: bleUUID,

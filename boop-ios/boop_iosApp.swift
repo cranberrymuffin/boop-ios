@@ -63,14 +63,6 @@ struct boop_iosApp: App {
                 }
             }
             .task {
-                // Seed device UUID before any profile operations.
-                // localDeviceUUID is otherwise lazy-initialized inside BluetoothManager.start(),
-                // which is deferred until after auth+profile — seeding here decouples identity
-                // from the BLE lifecycle and prevents first-run profile saves from failing.
-                if UserDefaults.standard.string(forKey: UserDefaultsKeys.localDeviceUUID) == nil {
-                    UserDefaults.standard.set(UUID().uuidString, forKey: UserDefaultsKeys.localDeviceUUID)
-                }
-
                 await setModelContainer()
                 locationManager.requestPermissionIfNeeded()
                 if let container = sharedModelContainer {

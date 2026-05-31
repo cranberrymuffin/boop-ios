@@ -6,8 +6,10 @@ struct ContactsView: View {
     @Binding var path: NavigationPath
     let onSwitchToBoop: () -> Void
 
+    @EnvironmentObject private var supabaseManager: SupabaseManager
+
     private var localUUID: UUID? {
-        UserDefaults.standard.string(forKey: UserDefaultsKeys.localDeviceUUID).flatMap(UUID.init)
+        supabaseManager.session?.user.id
     }
 
     private var visibleContacts: [Contact] {

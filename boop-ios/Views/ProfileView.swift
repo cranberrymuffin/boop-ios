@@ -16,8 +16,7 @@ struct ProfileView: View {
     @State private var profileState = ProfileState.loadingProfile
 
     private var ownProfile: Contact? {
-        guard let uuidString = UserDefaults.standard.string(forKey: UserDefaultsKeys.localDeviceUUID),
-              let uuid = UUID(uuidString: uuidString) else { return nil }
+        guard let uuid = supabaseManager.session?.user.id else { return nil }
         return allContacts.first(where: { $0.uuid == uuid })
     }
 

@@ -17,17 +17,10 @@ class BluetoothManager: NSObject, ObservableObject {
     // MARK: - Internal State
     var connectedPeripherals: [UUID: CBPeripheral] = [:]
 
-    /// Local device UUID - persisted across app launches
-    private(set) lazy var localDeviceUUID: UUID = {
-        let key = UserDefaultsKeys.localDeviceUUID
-        if let uuidString = UserDefaults.standard.string(forKey: key),
-           let uuid = UUID(uuidString: uuidString) {
-            return uuid
-        }
-        let newUUID = UUID()
-        UserDefaults.standard.set(newUUID.uuidString, forKey: key)
-        return newUUID
-    }()
+    /// Local device UUID — the authenticated Supabase user ID. Always valid while BLE is active.
+    var localDeviceUUID: UUID {
+        SupabaseManager.shared.session!.user.id
+    }
 
     // MARK: - Dependencies
     private var service: BluetoothManagerServiceImpl!
@@ -58,7 +51,6 @@ class BluetoothManager: NSObject, ObservableObject {
     }
 
     func start() {
-        _ = localDeviceUUID  // ensures UUID is persisted to UserDefaults before any profile operations
         Task {
             await service.start()
         }
