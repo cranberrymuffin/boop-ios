@@ -1,9 +1,14 @@
 import SwiftUI
 import AuthenticationServices
 
+enum LoginMode {
+    case signUp, login
+}
+
 struct LoginView: View {
+    let mode: LoginMode
+
     @EnvironmentObject private var supabaseManager: SupabaseManager
-    @Environment(\.dismiss) private var dismiss
 
     private enum FormViewState {
         case input
@@ -11,101 +16,94 @@ struct LoginView: View {
         case resetEmailSent
     }
 
-    // Always .input on instantiation — never seeded from manager state.
-    // All transient state lives here, so swipe-to-dismiss releases it automatically.
     @State private var viewState: FormViewState = .input
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var fieldError: String?
 
+    private var title: String {
+        mode == .signUp ? "Create Account" : "Sign In"
+    }
+
+    private var subtitle: String {
+        mode == .signUp
+            ? "Sign up to back up your profile and interactions."
+            : "Welcome back."
+    }
+
     var body: some View {
-        NavigationStack {
-            VStack(spacing: Spacing.xl) {
-                Spacer()
+        VStack(spacing: Spacing.xl) {
+            Spacer()
 
-                Image(systemName: "person.badge.shield.checkmark")
-                    .font(.system(size: 60))
-                    .foregroundColor(.accentPrimary)
+            Image(systemName: "person.badge.shield.checkmark")
+                .font(.system(size: 60))
+                .foregroundColor(.accentPrimary)
 
-                VStack(spacing: Spacing.sm) {
-                    Text("Login or Create Account")
-                        .font(.heading1)
-                        .foregroundColor(.textPrimary)
-                        .multilineTextAlignment(.center)
+            VStack(spacing: Spacing.sm) {
+                Text(title)
+                    .font(.heading1)
+                    .foregroundColor(.textPrimary)
+                    .multilineTextAlignment(.center)
 
-                    Text("Back up your profile and interactions.")
+                Text(subtitle)
+                    .font(.subtitle)
+                    .foregroundColor(.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+
+            VStack(spacing: Spacing.md) {
+                SignInWithAppleButton(.continue, onRequest: { request in
+                    request.requestedScopes = [.email, .fullName]
+                    request.nonce = supabaseManager.prepareSignIn()
+                }, onCompletion: { result in
+                    Task {
+                        await supabaseManager.handleAppleCompletion(result)
+                    }
+                })
+                .signInWithAppleButtonStyle(.white)
+                .frame(height: 50)
+                .cornerRadius(CornerRadius.md)
+
+                HStack {
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundColor(.textMuted)
+                    Text("or")
                         .font(.subtitle)
-                        .foregroundColor(.textSecondary)
+                        .foregroundColor(.textMuted)
+                    Rectangle()
+                        .frame(height: 1)
+                        .foregroundColor(.textMuted)
+                }
+
+                switch viewState {
+                case .input:
+                    inputFormView
+                case .awaitingVerification(let verifiedEmail):
+                    awaitingVerificationView(verifiedEmail: verifiedEmail)
+                case .resetEmailSent:
+                    resetEmailSentView
+                }
+
+                if let fieldError {
+                    Text(fieldError)
+                        .font(.subtitle)
+                        .foregroundColor(.statusError)
                         .multilineTextAlignment(.center)
                 }
-
-                Spacer()
-
-                VStack(spacing: Spacing.md) {
-                    // Apple sign-in — unchanged
-                    SignInWithAppleButton(.continue, onRequest: { request in
-                        request.requestedScopes = [.email, .fullName]
-                        request.nonce = supabaseManager.prepareSignIn()
-                    }, onCompletion: { result in
-                        Task {
-                            await supabaseManager.handleAppleCompletion(result)
-                            if supabaseManager.session != nil {
-                                dismiss()
-                            }
-                        }
-                    })
-                    .signInWithAppleButtonStyle(.white)
-                    .frame(height: 50)
-                    .cornerRadius(CornerRadius.md)
-
-                    // "or" divider
-                    HStack {
-                        Rectangle()
-                            .frame(height: 1)
-                            .foregroundColor(.textMuted)
-                        Text("or")
-                            .font(.subtitle)
-                            .foregroundColor(.textMuted)
-                        Rectangle()
-                            .frame(height: 1)
-                            .foregroundColor(.textMuted)
-                    }
-
-                    // Email form — state-driven
-                    switch viewState {
-                    case .input:
-                        inputFormView
-                    case .awaitingVerification(let verifiedEmail):
-                        awaitingVerificationView(verifiedEmail: verifiedEmail)
-                    case .resetEmailSent:
-                        resetEmailSentView
-                    }
-
-                    // Inline errors (visible in all states)
-                    if let fieldError {
-                        Text(fieldError)
-                            .font(.subtitle)
-                            .foregroundColor(.statusError)
-                            .multilineTextAlignment(.center)
-                    }
-                    if let error = supabaseManager.authError {
-                        Text(error)
-                            .font(.subtitle)
-                            .foregroundColor(.statusError)
-                            .multilineTextAlignment(.center)
-                    }
-                }
-                .padding(.bottom, Spacing.xl)
-            }
-            .padding(.horizontal, Spacing.lg)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundColor(.accentPrimary)
+                if let error = supabaseManager.authError {
+                    Text(error)
+                        .font(.subtitle)
+                        .foregroundColor(.statusError)
+                        .multilineTextAlignment(.center)
                 }
             }
+            .padding(.bottom, Spacing.xl)
         }
+        .padding(.horizontal, Spacing.lg)
+        .navigationBarTitleDisplayMode(.inline)
         .pageBackground()
         .overlay {
             if supabaseManager.isLoading {
@@ -143,49 +141,51 @@ struct LoginView: View {
                     supabaseManager.authError = nil
                 }
 
-            Button("Sign In") {
-                Task {
-                    guard validateInput(requirePassword: true) else { return }
-                    await supabaseManager.signInWithEmail(email, password: password)
-                    if supabaseManager.session != nil { dismiss() }
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(Spacing.md)
-            .background(Color.accentPrimary)
-            .foregroundColor(.textOnAccent)
-            .cornerRadius(CornerRadius.md)
-            .disabled(supabaseManager.isLoading)
-
-            Button("Create Account") {
-                Task {
-                    guard validateInput(requirePassword: true) else { return }
-                    let result = await supabaseManager.signUpWithEmail(email, password: password)
-                    switch result {
-                    case .verificationRequired(let e):
-                        viewState = .awaitingVerification(email: e)
-                    case .signedIn:
-                        dismiss()
+            if mode == .signUp {
+                Button("Create Account") {
+                    Task {
+                        guard validateInput(requirePassword: true) else { return }
+                        let result = await supabaseManager.signUpWithEmail(email, password: password)
+                        if case .verificationRequired(let e) = result {
+                            viewState = .awaitingVerification(email: e)
+                        }
+                        // No dismiss() — RootView reactive routing handles transition on session change
                     }
                 }
+                .frame(maxWidth: .infinity)
+                .padding(Spacing.md)
+                .background(Color.accentPrimary)
+                .foregroundColor(.textOnAccent)
+                .cornerRadius(CornerRadius.md)
+                .disabled(supabaseManager.isLoading)
             }
-            .frame(maxWidth: .infinity)
-            .padding(Spacing.md)
-            .background(Color.formBackgroundInactive)
-            .foregroundColor(.accentPrimary)
-            .cornerRadius(CornerRadius.md)
-            .disabled(supabaseManager.isLoading)
 
-            Button("Forgot password?") {
-                Task {
-                    guard validateInput(requirePassword: false) else { return }
-                    await supabaseManager.sendPasswordReset(for: email)
-                    viewState = .resetEmailSent
+            if mode == .login {
+                Button("Sign In") {
+                    Task {
+                        guard validateInput(requirePassword: true) else { return }
+                        await supabaseManager.signInWithEmail(email, password: password)
+                        // No dismiss() — RootView reactive routing handles transition on session change
+                    }
                 }
+                .frame(maxWidth: .infinity)
+                .padding(Spacing.md)
+                .background(Color.accentPrimary)
+                .foregroundColor(.textOnAccent)
+                .cornerRadius(CornerRadius.md)
+                .disabled(supabaseManager.isLoading)
+
+                Button("Forgot password?") {
+                    Task {
+                        guard validateInput(requirePassword: false) else { return }
+                        await supabaseManager.sendPasswordReset(for: email)
+                        viewState = .resetEmailSent
+                    }
+                }
+                .font(.subtitle)
+                .foregroundColor(.textMuted)
+                .disabled(supabaseManager.isLoading)
             }
-            .font(.subtitle)
-            .foregroundColor(.textMuted)
-            .disabled(supabaseManager.isLoading)
         }
     }
 
@@ -203,9 +203,8 @@ struct LoginView: View {
 
             Button("I've verified — sign in") {
                 Task {
-                    // Use verifiedEmail from the enum (authoritative; ignores edited email field)
                     await supabaseManager.signInWithEmail(verifiedEmail, password: password)
-                    if supabaseManager.session != nil { dismiss() }
+                    // No dismiss() — RootView reactive routing handles transition on session change
                 }
             }
             .frame(maxWidth: .infinity)

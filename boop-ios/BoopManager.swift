@@ -39,6 +39,7 @@ class BoopManager: NSObject, ObservableObject {
 
     // MARK: - Private Properties
     private var cancellables = Set<AnyCancellable>()
+    private var isStarted = false
     private var lastBoopTime: [UUID: Date] = [:]
     private let boopCooldown: TimeInterval = 5.0
     private var boopDetectionEnabled = false
@@ -148,12 +149,15 @@ class BoopManager: NSObject, ObservableObject {
     }
 
     func start() {
+        guard !isStarted else { return }
+        isStarted = true
         _ = getOrCreateBluetoothManager()
         setupObservers()
         bluetoothManager?.start()
     }
 
     func stop() {
+        isStarted = false
         disableBoopDetection()
         cancellables.removeAll()
         nearbyDeviceNames.removeAll()

@@ -12,7 +12,6 @@ struct PersonDetailView<Route: Hashable>: View {
     let historyRoute: Route
 
     @EnvironmentObject private var supabaseManager: SupabaseManager
-    @State private var showLoginSheet = false
 
     var body: some View {
         ZStack {
@@ -84,10 +83,6 @@ struct PersonDetailView<Route: Hashable>: View {
                 }
             }
         }
-        .sheet(isPresented: $showLoginSheet) {
-            LoginView()
-                .environmentObject(supabaseManager)
-        }
     }
 
     @ViewBuilder
@@ -111,19 +106,6 @@ struct PersonDetailView<Route: Hashable>: View {
                         Text("Log out")
                     }
                     .foregroundColor(.statusError)
-                }
-            }
-            .listRowBackground(Color.clear)
-        } else {
-            Section {
-                Button {
-                    showLoginSheet = true
-                } label: {
-                    HStack {
-                        Image(systemName: "person.badge.shield.checkmark")
-                        Text("Login")
-                    }
-                    .foregroundColor(.accentPrimary)
                 }
             }
             .listRowBackground(Color.clear)
