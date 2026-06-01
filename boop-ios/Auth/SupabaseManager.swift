@@ -310,6 +310,7 @@ final class SupabaseManager: ObservableObject {
             let birthday: String?
             let bio: String?
             let avatar_url: String?
+            let gradient_colors: [String]?
         }
 
         do {
@@ -326,7 +327,7 @@ final class SupabaseManager: ObservableObject {
             for otherUserId in uniqueContactIDs {
                 let profiles: [RemoteContact] = try await client
                     .from("profiles")
-                    .select("display_name, birthday, bio, avatar_url")
+                    .select("display_name, birthday, bio, avatar_url, gradient_colors")
                     .eq("id", value: otherUserId.uuidString)
                     .limit(1)
                     .execute()
@@ -339,12 +340,13 @@ final class SupabaseManager: ObservableObject {
                 formatter.formatOptions = [.withFullDate]
                 let birthday = profile.birthday.flatMap { formatter.date(from: $0) }
 
+                let gradientColors = (profile.gradient_colors ?? []).compactMap { Contact.stringToColor($0) }
                 guard let contact = ContactRepository.shared.findOrCreate(
                     uuid: otherUserId,
                     displayName: profile.display_name,
                     birthday: birthday,
                     bio: profile.bio,
-                    gradientColors: []
+                    gradientColors: gradientColors
                 ) else { continue }
 
                 if let urlString = profile.avatar_url, let url = URL(string: urlString) {
