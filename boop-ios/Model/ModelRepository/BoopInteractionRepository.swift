@@ -78,6 +78,15 @@ final class BoopInteractionRepository {
         return (try? modelContext.fetch(FetchDescriptor<BoopInteraction>())) ?? []
     }
 
+    /// Find an interaction by its Supabase interaction ID.
+    func find(bySupabaseID id: UUID) -> BoopInteraction? {
+        guard let modelContext else { return nil }
+        let descriptor = FetchDescriptor<BoopInteraction>(predicate: #Predicate {
+            $0.supabaseInteractionID == id
+        })
+        return (try? modelContext.fetch(descriptor))?.first
+    }
+
     /// Find the most recent interaction for a contact (by contact UUID).
     func findLatest(forContactUUID contactUUID: UUID) -> BoopInteraction? {
         guard let modelContext else { return nil }
@@ -106,6 +115,20 @@ final class BoopInteractionRepository {
         save()
     }
 
+    /// Updates the boopCount on the local interaction matching contactUUID + timestamp to at least `count`.
+    func updateBoopCount(_ count: Int, contactUUID: UUID, near timestamp: Date, window: TimeInterval) {
+        guard let modelContext else { return }
+        let windowStart = timestamp.addingTimeInterval(-window)
+        let windowEnd = timestamp.addingTimeInterval(window)
+        let descriptor = FetchDescriptor<BoopInteraction>(predicate: #Predicate {
+            $0.timestamp >= windowStart && $0.timestamp <= windowEnd
+        })
+        let matches = (try? modelContext.fetch(descriptor)) ?? []
+        guard let local = matches.first(where: { $0.contact?.uuid == contactUUID }) else { return }
+        local.boopCount = max(local.boopCount, count)
+        save()
+    }
+
     /// Increment the boop count on an existing interaction and save.
     func incrementBoopCount(_ interaction: BoopInteraction) {
         interaction.boopCount += 1
@@ -130,73 +153,6 @@ final class BoopInteractionRepository {
                 interaction.location += " → \(location)"
             }
         }
-        save()
-    }
-
-    // MARK: - Migration
-
-    /// One-time migration: merge interactions for the same contact on the same calendar day
-    /// into a single interaction (keeps earliest timestamp, latest endTimestamp, merged images).
-    func mergeSessionDuplicates() {
-        guard let modelContext else { return }
-
-        let descriptor = FetchDescriptor<BoopInteraction>(
-            sortBy: [SortDescriptor(\BoopInteraction.timestamp)]
-        )
-        guard let all = try? modelContext.fetch(descriptor) else { return }
-
-        // Group by contact UUID (skip interactions without a contact)
-        var byContact: [UUID: [BoopInteraction]] = [:]
-        for interaction in all {
-            guard let uuid = interaction.contact?.uuid else { continue }
-            byContact[uuid, default: []].append(interaction)
-        }
-
-        let calendar = Calendar.current
-
-        for (_, interactions) in byContact {
-            let sorted = interactions.sorted { $0.timestamp < $1.timestamp }
-
-            // Group consecutive interactions that share the same calendar day
-            var dayGroups: [[BoopInteraction]] = []
-            for interaction in sorted {
-                if let last = dayGroups.last?.first,
-                   calendar.isDate(interaction.timestamp, inSameDayAs: last.timestamp) {
-                    dayGroups[dayGroups.count - 1].append(interaction)
-                } else {
-                    dayGroups.append([interaction])
-                }
-            }
-
-            for group in dayGroups where group.count > 1 {
-                let primary = group[0]
-                let duplicates = group.dropFirst()
-
-                // Keep the latest endTimestamp
-                if let latestEnd = duplicates.compactMap(\.endTimestamp).max() {
-                    primary.endTimestamp = max(primary.endTimestamp ?? latestEnd, latestEnd)
-                }
-
-                // Merge image data (avoid exact duplicates)
-                for dup in duplicates {
-                    primary.imageData.append(contentsOf: dup.imageData)
-                }
-
-                // Keep the longest path
-                if let longestDup = duplicates.max(by: {
-                    ($0.pathCoordinatesData?.count ?? 0) < ($1.pathCoordinatesData?.count ?? 0)
-                }), (longestDup.pathCoordinatesData?.count ?? 0) > (primary.pathCoordinatesData?.count ?? 0) {
-                    primary.pathCoordinatesData = longestDup.pathCoordinatesData
-                }
-
-                // Delete duplicates
-                for dup in duplicates {
-                    dup.contact?.interactions.removeAll { $0.id == dup.id }
-                    modelContext.delete(dup)
-                }
-            }
-        }
-
         save()
     }
 

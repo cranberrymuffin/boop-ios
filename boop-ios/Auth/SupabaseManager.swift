@@ -586,6 +586,9 @@ final class SupabaseManager: ObservableObject {
             let storage_path: String
             let uploaded_by: UUID
         }
+        struct BoopLinkRow: Decodable {
+            let interaction_id: UUID
+        }
 
         let dateFormatter = ISO8601DateFormatter()
         dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -607,14 +610,35 @@ final class SupabaseManager: ObservableObject {
                 print("[Supabase] restoreInteractions — row \(interaction.id.uuidString.prefix(8)): otherUser=\(otherUserId?.uuidString.prefix(8) ?? "nil"), timestamp=\(timestamp != nil), contact=\(contact != nil)")
                 guard let otherUserId, let timestamp, let contact else { continue }
 
+                let boopLinkRows: [BoopLinkRow] = (try? await client
+                    .from("interaction_boops")
+                    .select("interaction_id")
+                    .eq("interaction_id", value: interaction.id.uuidString)
+                    .execute()
+                    .value) ?? []
+                let remoteBoopCount = max(1, boopLinkRows.count)
+
+                // Check by supabase ID first (exact match), then fall back to timestamp proximity.
+                if let existing = BoopInteractionRepository.shared.find(bySupabaseID: interaction.id) {
+                    existing.boopCount = max(existing.boopCount, remoteBoopCount)
+                    try? ModelContextProvider.shared.context?.save()
+                    continue
+                }
+
                 if BoopInteractionRepository.shared.isDuplicate(
                     contactUUID: otherUserId,
                     timestamp: timestamp,
                     window: 12 * 3600
                 ) {
-                    // Interaction already exists locally — backfill supabaseInteractionID if missing.
+                    // Interaction already exists locally — backfill supabaseInteractionID and boop count.
                     BoopInteractionRepository.shared.backfillSupabaseID(
                         interaction.id,
+                        contactUUID: otherUserId,
+                        near: timestamp,
+                        window: 12 * 3600
+                    )
+                    BoopInteractionRepository.shared.updateBoopCount(
+                        remoteBoopCount,
                         contactUUID: otherUserId,
                         near: timestamp,
                         window: 12 * 3600
@@ -644,6 +668,7 @@ final class SupabaseManager: ObservableObject {
                     contact: contact
                 ) {
                     localInteraction.supabaseInteractionID = interaction.id
+                    localInteraction.boopCount = remoteBoopCount
                     localInteraction.imageData = imageData
                     localInteraction.photoMetadata = metadata
                     try? ModelContextProvider.shared.context?.save()

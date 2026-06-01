@@ -246,22 +246,6 @@ class BoopManager: NSObject, ObservableObject {
             gradientColors: boop.gradientColors
         ) else { return }
 
-        Task {
-            let interactionID = await SupabaseManager.shared.recordBoopConnection(
-                withBLEDeviceUUID: boop.senderUUID,
-                lastBoopedAt: event.timestamp
-            )
-            if let interactionID,
-               let interaction = self.activeSessionInteraction[peripheralUUID] {
-                interaction.supabaseInteractionID = interactionID
-                try? ModelContextProvider.shared.context?.save()
-            }
-            await SupabaseManager.shared.fetchAndSaveAvatar(
-                forBLEDeviceUUID: boop.senderUUID,
-                into: contact
-            )
-        }
-
         let interactionRepo = BoopInteractionRepository.shared
 
         // Same BLE session already has an interaction — increment count and refresh live activity.
@@ -274,6 +258,13 @@ class BoopManager: NSObject, ObservableObject {
                 contactID: boop.senderUUID,
                 interactionID: existing.id
             )
+            Task {
+                await SupabaseManager.shared.recordBoopConnection(
+                    withBLEDeviceUUID: boop.senderUUID,
+                    lastBoopedAt: event.timestamp
+                )
+                await SupabaseManager.shared.fetchAndSaveAvatar(forBLEDeviceUUID: boop.senderUUID, into: contact)
+            }
             return
         }
 
@@ -288,26 +279,64 @@ class BoopManager: NSObject, ObservableObject {
                 contactID: boop.senderUUID,
                 interactionID: todayInteraction.id
             )
+            Task {
+                let interactionID = await SupabaseManager.shared.recordBoopConnection(
+                    withBLEDeviceUUID: boop.senderUUID,
+                    lastBoopedAt: event.timestamp
+                )
+                if let interactionID, todayInteraction.supabaseInteractionID == nil {
+                    todayInteraction.supabaseInteractionID = interactionID
+                    try? ModelContextProvider.shared.context?.save()
+                }
+                await SupabaseManager.shared.fetchAndSaveAvatar(forBLEDeviceUUID: boop.senderUUID, into: contact)
+            }
             return
         }
 
-        // No interaction yet today — create one.
+        // No interaction yet today — create only after supabaseInteractionID is known to prevent
+        // a duplicate being created by restoreInteractions before the ID is set locally.
         let locationName = locationManager?.currentLocationName ?? ""
 
-        guard let interaction = interactionRepo.create(
-            location: locationName,
-            timestamp: event.timestamp,
-            contact: contact
-        ) else { return }
+        Task {
+            let interactionID = await SupabaseManager.shared.recordBoopConnection(
+                withBLEDeviceUUID: boop.senderUUID,
+                lastBoopedAt: event.timestamp
+            )
 
-        activeSessionInteraction[peripheralUUID] = interaction
-        latestBoopInteraction = interaction
+            // If restoreInteractions already created this interaction, reuse it.
+            if let interactionID,
+               let existing = interactionRepo.find(bySupabaseID: interactionID) {
+                self.activeSessionInteraction[peripheralUUID] = existing
+                self.latestBoopInteraction = existing
+                LiveActivityManager.shared.refreshBoopLiveActivity(
+                    contactName: boop.displayName,
+                    contactID: boop.senderUUID,
+                    interactionID: existing.id
+                )
+                await SupabaseManager.shared.fetchAndSaveAvatar(forBLEDeviceUUID: boop.senderUUID, into: contact)
+                return
+            }
 
-        LiveActivityManager.shared.startBoopLiveActivity(
-            contactName: boop.displayName,
-            contactID: boop.senderUUID,
-            interactionID: interaction.id
-        )
+            guard let interaction = interactionRepo.create(
+                location: locationName,
+                timestamp: event.timestamp,
+                contact: contact
+            ) else { return }
+
+            interaction.supabaseInteractionID = interactionID
+            try? ModelContextProvider.shared.context?.save()
+
+            self.activeSessionInteraction[peripheralUUID] = interaction
+            self.latestBoopInteraction = interaction
+
+            LiveActivityManager.shared.startBoopLiveActivity(
+                contactName: boop.displayName,
+                contactID: boop.senderUUID,
+                interactionID: interaction.id
+            )
+
+            await SupabaseManager.shared.fetchAndSaveAvatar(forBLEDeviceUUID: boop.senderUUID, into: contact)
+        }
     }
 
     // MARK: - Session End Handling
