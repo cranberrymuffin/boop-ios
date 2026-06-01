@@ -82,7 +82,10 @@ struct InteractionDetailView: View {
                 showCamera = true
             }
         }
-        .task { await fetchRemotePhotos() }
+        .task {
+            print("[Detail] opened interaction \(interaction.id.uuidString.prefix(8)), supabaseInteractionID: \(interaction.supabaseInteractionID?.uuidString.prefix(8) ?? "nil")")
+            await fetchRemotePhotos()
+        }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(isEditing ? "Done" : "Edit") {
@@ -296,7 +299,8 @@ struct InteractionDetailView: View {
             if let path = await SupabaseManager.shared.uploadInteractionPhoto(
                 data: data,
                 contactBLEUUID: bleUUID,
-                interactionDate: interaction.timestamp
+                interactionDate: interaction.timestamp,
+                supabaseInteractionID: interaction.supabaseInteractionID
             ) {
                 var updatedMeta = interaction.photoMetadata
                 if index < updatedMeta.count {
@@ -327,13 +331,13 @@ struct InteractionDetailView: View {
 
         let rows = await SupabaseManager.shared.fetchInteractionPhotoRows(
             contactBLEUUID: bleUUID,
-            interactionDate: interaction.timestamp
+            interactionDate: interaction.timestamp,
+            supabaseInteractionID: interaction.supabaseInteractionID
         )
         let localPaths = Set(interaction.photoMetadata.compactMap { $0.storagePath })
-        let theirRows = Array(
-            Dictionary(grouping: rows.filter { $0.uploadedBy != myID && !localPaths.contains($0.storagePath) }) { $0.uploadedBy }
-                .values.compactMap { $0.first }
-        )
+        let theirRows = rows.filter { $0.uploadedBy != myID && !localPaths.contains($0.storagePath) }
+        let myMissingRows = rows.filter { $0.uploadedBy == myID && !localPaths.contains($0.storagePath) }
+        print("[Detail] photo split — total: \(rows.count), localPaths: \(localPaths.count), theirRows: \(theirRows.count), myMissing: \(myMissingRows.count)")
 
         var fetched: [RemotePhoto] = []
         await withTaskGroup(of: RemotePhoto?.self) { group in
@@ -347,7 +351,17 @@ struct InteractionDetailView: View {
                 if let photo { fetched.append(photo) }
             }
         }
+        print("[Detail] photo fetch done — fetched: \(fetched.count), localImageData: \(interaction.imageData.count)")
         remotePhotos = fetched
+
+        // Restore own photos that are in Supabase but missing locally (e.g. after reinstall).
+        for row in myMissingRows {
+            guard let data = await SupabaseManager.shared.downloadPhoto(storagePath: row.storagePath) else { continue }
+            interaction.imageData.append(data)
+            var meta = interaction.photoMetadata
+            meta.append(PhotoMeta(storagePath: row.storagePath, uploadedByUserID: row.uploadedBy.uuidString))
+            interaction.photoMetadata = meta
+        }
     }
 
     // MARK: - Notes Section

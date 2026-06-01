@@ -34,6 +34,7 @@ final class BoopInteraction {
     var pathCoordinatesData: Data?
     var notes: String?
     var boopCount: Int = 1
+    var supabaseInteractionID: UUID?
 
     // Relationship to Contact
     var contact: Contact?

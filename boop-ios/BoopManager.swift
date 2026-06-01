@@ -247,10 +247,15 @@ class BoopManager: NSObject, ObservableObject {
         ) else { return }
 
         Task {
-            await SupabaseManager.shared.recordBoopConnection(
+            let interactionID = await SupabaseManager.shared.recordBoopConnection(
                 withBLEDeviceUUID: boop.senderUUID,
                 lastBoopedAt: event.timestamp
             )
+            if let interactionID,
+               let interaction = self.activeSessionInteraction[peripheralUUID] {
+                interaction.supabaseInteractionID = interactionID
+                try? ModelContextProvider.shared.context?.save()
+            }
             await SupabaseManager.shared.fetchAndSaveAvatar(
                 forBLEDeviceUUID: boop.senderUUID,
                 into: contact

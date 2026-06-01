@@ -236,29 +236,48 @@ final class SupabaseManager: ObservableObject {
         }
     }
 
-    /// Records a boop connection to Supabase. The BLE device UUID is the contact's Supabase user ID.
-    func recordBoopConnection(withBLEDeviceUUID bleUUID: UUID, lastBoopedAt: Date = Date()) async {
-        guard let myUserId = session?.user.id else { return }
+    /// Records a boop into Supabase and returns the DB-derived interaction ID from `interaction_boops`.
+    /// The BLE device UUID is the contact's Supabase user ID.
+    @discardableResult
+    func recordBoopConnection(withBLEDeviceUUID bleUUID: UUID, lastBoopedAt: Date = Date()) async -> UUID? {
+        guard let myUserId = session?.user.id else { return nil }
 
-        struct Connection: Encodable {
+        struct BoopInsert: Encodable {
+            let time: String
             let participants: [UUID]
-            let started_at: String
         }
+        struct BoopRow: Decodable { let uid: UUID }
+        struct InteractionBoopRow: Decodable { let interaction_id: UUID }
 
-        // Sort UUIDs so the array is order-independent
         let participants = [myUserId, bleUUID].sorted { $0.uuidString < $1.uuidString }
 
         do {
-            try await client.from("boop_interactions")
-                .insert(Connection(participants: participants, started_at: ISO8601DateFormatter().string(from: lastBoopedAt)))
+            let boopRows: [BoopRow] = try await client.from("boops")
+                .insert(BoopInsert(time: ISO8601DateFormatter().string(from: lastBoopedAt), participants: participants))
+                .select("uid")
                 .execute()
-            print("[Supabase] recordBoopConnection — inserted connection with \(bleUUID.uuidString.prefix(8))")
+                .value
+
+            guard let boopUID = boopRows.first?.uid else { return nil }
+
+            let linkRows: [InteractionBoopRow] = (try? await client
+                .from("interaction_boops")
+                .select("interaction_id")
+                .eq("boop_uid", value: boopUID.uuidString)
+                .limit(1)
+                .execute()
+                .value) ?? []
+
+            let interactionID = linkRows.first?.interaction_id
+            print("[Supabase] recordBoopConnection — boop \(boopUID.uuidString.prefix(8)), interactionID: \(interactionID?.uuidString.prefix(8) ?? "none")")
+            return interactionID
         } catch {
             print("[Supabase] recordBoopConnection — error: \(error)")
+            return nil
         }
     }
 
-    /// Syncs all locally stored boop contacts to Supabase boop_interactions and fetches their avatars.
+    /// Syncs all locally stored boop contacts to Supabase boops and fetches their avatars.
     /// Call on login so existing offline boops are reflected in the remote table.
     func syncAllBoopConnections() async {
         guard session?.user.id != nil else { return }
@@ -295,17 +314,16 @@ final class SupabaseManager: ObservableObject {
 
         do {
             let connections: [ConnectionRow] = try await client
-                .from("boop_interactions")
+                .from("boops")
                 .select("participants")
                 .filter("participants", operator: "cs", value: "{\(userId.uuidString.lowercased())}")
                 .execute()
                 .value
 
+            let uniqueContactIDs = Set(connections.compactMap { $0.participants.first(where: { $0 != userId }) })
+            print("[Supabase] restoreContacts — boops rows: \(connections.count), unique contacts: \(uniqueContactIDs.count) for \(userId.uuidString.prefix(8))")
             var restoredCount = 0
-            for connection in connections {
-                // otherUserId IS the contact's UUID (BLE UUID = Supabase user ID)
-                guard let otherUserId = connection.participants.first(where: { $0 != userId }) else { continue }
-
+            for otherUserId in uniqueContactIDs {
                 let profiles: [RemoteContact] = try await client
                     .from("profiles")
                     .select("display_name, birthday, bio, avatar_url")
@@ -314,6 +332,7 @@ final class SupabaseManager: ObservableObject {
                     .execute()
                     .value
 
+                print("[Supabase] restoreContacts — profile lookup for \(otherUserId.uuidString.prefix(8)): \(profiles.count) result(s)")
                 guard let profile = profiles.first else { continue }
 
                 let formatter = ISO8601DateFormatter()
@@ -398,10 +417,23 @@ final class SupabaseManager: ObservableObject {
         return [myID, contactID].sorted { $0.uuidString < $1.uuidString }
     }
 
-    func uploadInteractionPhoto(data: Data, contactBLEUUID: UUID, interactionDate: Date) async -> String? {
-        guard let myID = session?.user.id,
-              let participants = await participantsForContact(contactBLEUUID),
-              let interactionID = await findInteractionID(participants: participants, near: interactionDate) else { return nil }
+    func uploadInteractionPhoto(data: Data, contactBLEUUID: UUID, interactionDate: Date, supabaseInteractionID: UUID? = nil) async -> String? {
+        guard let myID = session?.user.id else { return nil }
+
+        let interactionID: UUID
+        if let id = supabaseInteractionID {
+            print("[Supabase] uploadInteractionPhoto — using stored interactionID: \(id.uuidString.prefix(8))")
+            interactionID = id
+        } else {
+            print("[Supabase] uploadInteractionPhoto — supabaseInteractionID nil, falling back to lookup")
+            guard let participants = await participantsForContact(contactBLEUUID),
+                  let resolved = await findInteractionID(participants: participants, near: interactionDate) else {
+                print("[Supabase] uploadInteractionPhoto — lookup failed, aborting")
+                return nil
+            }
+            print("[Supabase] uploadInteractionPhoto — lookup resolved interactionID: \(resolved.uuidString.prefix(8))")
+            interactionID = resolved
+        }
 
         struct PhotoRow: Encodable {
             let interaction_id: UUID
@@ -426,41 +458,52 @@ final class SupabaseManager: ObservableObject {
         }
     }
 
-    func fetchInteractionPhotoRows(contactBLEUUID: UUID, interactionDate: Date) async -> [InteractionPhotoRow] {
-        guard let participants = await participantsForContact(contactBLEUUID),
-              let interactionID = await findInteractionID(participants: participants, near: interactionDate) else { return [] }
+    func fetchInteractionPhotoRows(contactBLEUUID: UUID, interactionDate: Date, supabaseInteractionID: UUID? = nil) async -> [InteractionPhotoRow] {
+        let interactionID: UUID
+        if let id = supabaseInteractionID {
+            print("[Supabase] fetchInteractionPhotoRows — using stored interactionID: \(id.uuidString.prefix(8))")
+            interactionID = id
+        } else {
+            print("[Supabase] fetchInteractionPhotoRows — supabaseInteractionID nil, falling back to lookup")
+            guard let participants = await participantsForContact(contactBLEUUID),
+                  let resolved = await findInteractionID(participants: participants, near: interactionDate) else {
+                print("[Supabase] fetchInteractionPhotoRows — lookup failed, returning empty")
+                return []
+            }
+            print("[Supabase] fetchInteractionPhotoRows — lookup resolved interactionID: \(resolved.uuidString.prefix(8))")
+            interactionID = resolved
+        }
         do {
-            return try await client
+            let rows: [InteractionPhotoRow] = try await client
                 .from("photos")
                 .select("id, storage_path, uploaded_by")
                 .eq("interaction_id", value: interactionID.uuidString)
                 .execute()
                 .value
+            print("[Supabase] fetchInteractionPhotoRows — found \(rows.count) photo(s) for interaction \(interactionID.uuidString.prefix(8))")
+            return rows
         } catch {
             print("[Supabase] fetchInteractionPhotoRows — error: \(error)")
             return []
         }
     }
 
-    /// Finds the boop_interactions row for the given participants closest in time to `date` (within 24h).
+    /// Finds the interactions row for the given participants on the same calendar day as `date`.
     private func findInteractionID(participants: [UUID], near date: Date) async -> UUID? {
-        struct Row: Decodable { let id: UUID; let started_at: String }
+        struct Row: Decodable { let id: UUID }
         let participantsLiteral = "{\(participants.map { $0.uuidString.lowercased() }.joined(separator: ","))}"
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateStr = dateFormatter.string(from: date)
         guard let rows: [Row] = try? await client
-            .from("boop_interactions")
-            .select("id, started_at")
+            .from("interactions")
+            .select("id")
             .filter("participants", operator: "cs", value: participantsLiteral)
+            .eq("time", value: dateStr)
+            .limit(1)
             .execute()
             .value else { return nil }
-        let formatter = ISO8601DateFormatter()
-        return rows
-            .compactMap { row -> (UUID, TimeInterval)? in
-                guard let d = formatter.date(from: row.started_at) else { return nil }
-                let delta = abs(d.timeIntervalSince(date))
-                return delta < 86400 ? (row.id, delta) : nil
-            }
-            .min(by: { $0.1 < $1.1 })?
-            .0
+        return rows.first?.id
     }
 
     func downloadPhoto(storagePath: String) async -> Data? {
@@ -501,7 +544,8 @@ final class SupabaseManager: ObservableObject {
                 if let path = await uploadInteractionPhoto(
                     data: interaction.imageData[i],
                     contactBLEUUID: contactBLEUUID,
-                    interactionDate: interaction.timestamp
+                    interactionDate: interaction.timestamp,
+                    supabaseInteractionID: interaction.supabaseInteractionID
                 ) {
                     metadata[i].storagePath = path
                     changed = true
@@ -527,14 +571,14 @@ final class SupabaseManager: ObservableObject {
         hasProfile = ContactRepository.shared.getOwnProfile() != nil
     }
 
-    /// Restores interactions from boop_interactions, fetching associated photos by interaction_id.
+    /// Restores interactions from the interactions table, fetching associated photos by interaction_id.
     func restoreInteractions() async {
         guard let userId = session?.user.id else { return }
 
         struct InteractionRow: Decodable {
             let id: UUID
             let participants: [UUID]
-            let started_at: String
+            let created_at: String
         }
         struct PhotoRow: Decodable {
             let storage_path: String
@@ -542,27 +586,39 @@ final class SupabaseManager: ObservableObject {
         }
 
         let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
         do {
             let interactions: [InteractionRow] = try await client
-                .from("boop_interactions")
-                .select("id, participants, started_at")
+                .from("interactions")
+                .select("id, participants, created_at")
                 .filter("participants", operator: "cs", value: "{\(userId.uuidString.lowercased())}")
                 .execute()
                 .value
 
+            print("[Supabase] restoreInteractions — interactions rows: \(interactions.count) for \(userId.uuidString.prefix(8))")
             var restoredCount = 0
             for interaction in interactions {
-                // otherUserId IS the contact's local UUID (BLE UUID = Supabase user ID)
-                guard let otherUserId = interaction.participants.first(where: { $0 != userId }),
-                      let timestamp = dateFormatter.date(from: interaction.started_at),
-                      let contact = ContactRepository.shared.find(byUUID: otherUserId) else { continue }
+                let otherUserId = interaction.participants.first(where: { $0 != userId })
+                let timestamp = dateFormatter.date(from: interaction.created_at)
+                let contact = otherUserId.flatMap { ContactRepository.shared.find(byUUID: $0) }
+                print("[Supabase] restoreInteractions — row \(interaction.id.uuidString.prefix(8)): otherUser=\(otherUserId?.uuidString.prefix(8) ?? "nil"), timestamp=\(timestamp != nil), contact=\(contact != nil)")
+                guard let otherUserId, let timestamp, let contact else { continue }
 
                 if BoopInteractionRepository.shared.isDuplicate(
                     contactUUID: otherUserId,
                     timestamp: timestamp,
                     window: 12 * 3600
-                ) { continue }
+                ) {
+                    // Interaction already exists locally — backfill supabaseInteractionID if missing.
+                    BoopInteractionRepository.shared.backfillSupabaseID(
+                        interaction.id,
+                        contactUUID: otherUserId,
+                        near: timestamp,
+                        window: 12 * 3600
+                    )
+                    continue
+                }
 
                 let photos: [PhotoRow] = (try? await client
                     .from("photos")
@@ -585,6 +641,7 @@ final class SupabaseManager: ObservableObject {
                     timestamp: timestamp,
                     contact: contact
                 ) {
+                    localInteraction.supabaseInteractionID = interaction.id
                     localInteraction.imageData = imageData
                     localInteraction.photoMetadata = metadata
                     try? ModelContextProvider.shared.context?.save()

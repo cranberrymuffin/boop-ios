@@ -92,6 +92,20 @@ final class BoopInteractionRepository {
 
     // MARK: - Update
 
+    /// Sets supabaseInteractionID on the local interaction matching contactUUID + timestamp if it's not already set.
+    func backfillSupabaseID(_ remoteID: UUID, contactUUID: UUID, near timestamp: Date, window: TimeInterval) {
+        guard let modelContext else { return }
+        let windowStart = timestamp.addingTimeInterval(-window)
+        let windowEnd = timestamp.addingTimeInterval(window)
+        let descriptor = FetchDescriptor<BoopInteraction>(predicate: #Predicate {
+            $0.timestamp >= windowStart && $0.timestamp <= windowEnd
+        })
+        let matches = (try? modelContext.fetch(descriptor)) ?? []
+        guard let local = matches.first(where: { $0.contact?.uuid == contactUUID && $0.supabaseInteractionID == nil }) else { return }
+        local.supabaseInteractionID = remoteID
+        save()
+    }
+
     /// Increment the boop count on an existing interaction and save.
     func incrementBoopCount(_ interaction: BoopInteraction) {
         interaction.boopCount += 1
