@@ -497,18 +497,20 @@ final class SupabaseManager: ObservableObject {
         }
     }
 
-    /// Finds the interactions row for the given participants on the same calendar day as `date`.
+    /// Finds the interactions row whose 6-hour window contains `date` for the given participants.
     private func findInteractionID(participants: [UUID], near date: Date) async -> UUID? {
         struct Row: Decodable { let id: UUID }
         let participantsLiteral = "{\(participants.map { $0.uuidString.lowercased() }.joined(separator: ","))}"
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        let dateStr = dateFormatter.string(from: date)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let windowStart = date.addingTimeInterval(-BoopInteractionRepository.interactionWindowDuration)
         guard let rows: [Row] = try? await client
             .from("interactions")
             .select("id")
             .filter("participants", operator: "cs", value: participantsLiteral)
-            .eq("time", value: dateStr)
+            .gte("time", value: formatter.string(from: windowStart))
+            .lte("time", value: formatter.string(from: date))
+            .order("time", ascending: false)
             .limit(1)
             .execute()
             .value else { return nil }
@@ -587,7 +589,7 @@ final class SupabaseManager: ObservableObject {
         struct InteractionRow: Decodable {
             let id: UUID
             let participants: [UUID]
-            let created_at: String
+            let time: String
         }
         struct PhotoRow: Decodable {
             let storage_path: String
@@ -603,7 +605,7 @@ final class SupabaseManager: ObservableObject {
         do {
             let interactions: [InteractionRow] = try await client
                 .from("interactions")
-                .select("id, participants, created_at")
+                .select("id, participants, time")
                 .filter("participants", operator: "cs", value: "{\(userId.uuidString.lowercased())}")
                 .execute()
                 .value
@@ -612,7 +614,7 @@ final class SupabaseManager: ObservableObject {
             var restoredCount = 0
             for interaction in interactions {
                 let otherUserId = interaction.participants.first(where: { $0 != userId })
-                let timestamp = dateFormatter.date(from: interaction.created_at)
+                let timestamp = dateFormatter.date(from: interaction.time)
                 let contact = otherUserId.flatMap { ContactRepository.shared.find(byUUID: $0) }
                 print("[Supabase] restoreInteractions — row \(interaction.id.uuidString.prefix(8)): otherUser=\(otherUserId?.uuidString.prefix(8) ?? "nil"), timestamp=\(timestamp != nil), contact=\(contact != nil)")
                 guard let otherUserId, let timestamp, let contact else { continue }
