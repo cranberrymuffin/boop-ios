@@ -57,16 +57,17 @@ final class BoopInteractionRepository {
         return interactions.contains { $0.contact?.uuid == contactUUID }
     }
 
-    /// Find the most recent interaction for a contact created on the current calendar day.
-    func findToday(forContactUUID contactUUID: UUID) -> BoopInteraction? {
+    static let interactionWindowDuration: TimeInterval = 6 * 3600
+
+    /// Find an open interaction for the given contact within the 6-hour window.
+    /// A window opens on the first boop and expires 6 hours later; a boop after
+    /// expiry starts a fresh interaction.
+    func findActiveWindow(forContactUUID contactUUID: UUID) -> BoopInteraction? {
         guard let modelContext else { return nil }
 
-        let calendar = Calendar.current
-        let startOfDay = calendar.startOfDay(for: Date())
-        guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else { return nil }
-
+        let windowStart = Date().addingTimeInterval(-Self.interactionWindowDuration)
         let descriptor = FetchDescriptor<BoopInteraction>(
-            predicate: #Predicate { $0.timestamp >= startOfDay && $0.timestamp < endOfDay },
+            predicate: #Predicate { $0.timestamp >= windowStart },
             sortBy: [SortDescriptor(\BoopInteraction.timestamp, order: .reverse)]
         )
         let interactions = (try? modelContext.fetch(descriptor)) ?? []

@@ -635,20 +635,20 @@ final class SupabaseManager: ObservableObject {
                 if BoopInteractionRepository.shared.isDuplicate(
                     contactUUID: otherUserId,
                     timestamp: timestamp,
-                    window: 12 * 3600
+                    window: BoopInteractionRepository.interactionWindowDuration
                 ) {
                     // Interaction already exists locally — backfill supabaseInteractionID and boop count.
                     BoopInteractionRepository.shared.backfillSupabaseID(
                         interaction.id,
                         contactUUID: otherUserId,
                         near: timestamp,
-                        window: 12 * 3600
+                        window: BoopInteractionRepository.interactionWindowDuration
                     )
                     BoopInteractionRepository.shared.updateBoopCount(
                         remoteBoopCount,
                         contactUUID: otherUserId,
                         near: timestamp,
-                        window: 12 * 3600
+                        window: BoopInteractionRepository.interactionWindowDuration
                     )
                     continue
                 }

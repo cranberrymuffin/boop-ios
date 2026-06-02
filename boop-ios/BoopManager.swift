@@ -268,10 +268,10 @@ class BoopManager: NSObject, ObservableObject {
             return
         }
 
-        // Reuse an existing interaction from today for this contact.
-        if let todayInteraction = interactionRepo.findToday(forContactUUID: boop.senderUUID) {
+        // Reuse an open interaction within the 6-hour window for this contact.
+        if let todayInteraction = interactionRepo.findActiveWindow(forContactUUID: boop.senderUUID) {
             interactionRepo.incrementBoopCount(todayInteraction)
-            print("📅 BoopManager: Reusing today's interaction \(todayInteraction.id) for \(boop.senderUUID.uuidString.prefix(8)) (boopCount: \(todayInteraction.boopCount))")
+            print("📅 BoopManager: Reusing active-window interaction \(todayInteraction.id) for \(boop.senderUUID.uuidString.prefix(8)) (boopCount: \(todayInteraction.boopCount))")
             activeSessionInteraction[peripheralUUID] = todayInteraction
             latestBoopInteraction = todayInteraction
             LiveActivityManager.shared.refreshBoopLiveActivity(
@@ -368,9 +368,9 @@ class BoopManager: NSObject, ObservableObject {
             pathCoords = [coord]
         }
 
-        // Use the interaction created at first boop this session, or fall back to latest
+        // Use the interaction created at first boop this session, or fall back to the active window.
         let existingInteraction = activeSessionInteraction[peripheralUUID]
-            ?? interactionRepo.findLatest(forContactUUID: senderUUID)
+            ?? interactionRepo.findActiveWindow(forContactUUID: senderUUID)
 
         if let existingInteraction {
             // Enrich the existing boop with session data
