@@ -251,6 +251,13 @@ final class SupabaseManager: ObservableObject {
 
         let participants = [myUserId, bleUUID].sorted { $0.uuidString < $1.uuidString }
 
+        // Only the participant with the lower UUID writes the boop record.
+        // The peer also calls this function, so without this guard both phones would insert a duplicate.
+        guard myUserId == participants[0] else {
+            print("[Supabase] recordBoopConnection — skipping write, peer is designated writer for (\(myUserId.uuidString.prefix(8))↔\(bleUUID.uuidString.prefix(8)))")
+            return nil
+        }
+
         do {
             let boopRows: [BoopRow] = try await client.from("boops")
                 .insert(BoopInsert(time: ISO8601DateFormatter().string(from: lastBoopedAt), participants: participants))
