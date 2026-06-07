@@ -17,7 +17,7 @@ struct BoopRangingView: View {
     @State private var currentBoopGradientColors: [Color] = []
 
     private let animationDuration: TimeInterval = 3
-    private let transitionDuration: TimeInterval = 1.0
+    private let transitionDuration: TimeInterval = 1.75
 
     // MARK: - Nearby device row model
 
