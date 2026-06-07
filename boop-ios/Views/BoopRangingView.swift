@@ -129,7 +129,6 @@ struct BoopRangingView: View {
                     ))
                 }
             }
-            .animation(.easeInOut(duration: transitionDuration), value: showBoop)
             .onAppear { boopManager.enableBoopDetection() }
             .onDisappear { boopManager.disableBoopDetection() }
             .onChange(of: boopManager.latestBoopEvent) { _, newValue in
@@ -172,10 +171,18 @@ struct BoopRangingView: View {
         currentBoopDisplayName = displayName
         currentBoopGradientColors = ContactRepository.shared.getOwnProfile()?.gradientColors
             ?? Array(repeating: Color.accentPrimary, count: 9)
-        showBoop = true
+
+        // Explicit withAnimation ensures the slide transition fires reliably even
+        // when the boop event arrives before SwiftUI's implicit .animation has
+        // a chance to observe the state change.
+        withAnimation(.easeInOut(duration: transitionDuration)) {
+            showBoop = true
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration) {
-            showBoop = false
+            withAnimation(.easeInOut(duration: transitionDuration)) {
+                showBoop = false
+            }
             // Defer dismissal until the slide-out transition completes.
             DispatchQueue.main.asyncAfter(deadline: .now() + transitionDuration) {
                 isPresented?.wrappedValue = false
