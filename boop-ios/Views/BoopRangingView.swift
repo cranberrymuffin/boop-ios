@@ -14,8 +14,10 @@ struct BoopRangingView: View {
 
     @State private var showBoop = false
     @State private var currentBoopDisplayName: String = ""
+    @State private var currentBoopGradientColors: [Color] = []
 
-    private let animationDuration: TimeInterval = 2
+    private let animationDuration: TimeInterval = 3
+    private let transitionDuration: TimeInterval = 1.75
 
     // MARK: - Nearby device row model
 
@@ -117,20 +119,16 @@ struct BoopRangingView: View {
             }
             .overlay {
                 if showBoop {
-                    ZStack {
-                        Color.backgroundPrimary.opacity(0.4).ignoresSafeArea()
-                        VStack(spacing: Spacing.xl) {
-                            Text("Boop!")
-                                .heading1Style()
-                            Text(currentBoopDisplayName)
-                                .heading2Style()
-                        }
-                        .cardStyle()
-                        .padding(Spacing.lg)
-                    }
+                    BoopAnnouncementOverlay(
+                        gradientColors: currentBoopGradientColors,
+                        displayName: currentBoopDisplayName
+                    )
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .top),
+                        removal: .move(edge: .bottom)
+                    ))
                 }
             }
-            .animation(.easeInOut(duration: animationDuration), value: showBoop)
             .onAppear { boopManager.enableBoopDetection() }
             .onDisappear { boopManager.disableBoopDetection() }
             .onChange(of: boopManager.latestBoopEvent) { _, newValue in
@@ -171,11 +169,24 @@ struct BoopRangingView: View {
 
     private func showBoopOverlay(displayName: String) {
         currentBoopDisplayName = displayName
-        showBoop = true
+        currentBoopGradientColors = ContactRepository.shared.getOwnProfile()?.gradientColors
+            ?? Array(repeating: Color.accentPrimary, count: 9)
+
+        // Explicit withAnimation ensures the slide transition fires reliably even
+        // when the boop event arrives before SwiftUI's implicit .animation has
+        // a chance to observe the state change.
+        withAnimation(.easeInOut(duration: transitionDuration)) {
+            showBoop = true
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration) {
-            showBoop = false
-            isPresented?.wrappedValue = false
+            withAnimation(.easeInOut(duration: transitionDuration)) {
+                showBoop = false
+            }
+            // Defer dismissal until the slide-out transition completes.
+            DispatchQueue.main.asyncAfter(deadline: .now() + transitionDuration) {
+                isPresented?.wrappedValue = false
+            }
         }
     }
 
